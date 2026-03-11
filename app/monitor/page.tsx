@@ -54,7 +54,7 @@ export default function HealthMonitorPage() {
     },
     {
       label: "Huyết áp (Systolic)",
-      value: 70,
+      value: 110,
       unit: "mmHg",
       min: 60,
       max: 200,
