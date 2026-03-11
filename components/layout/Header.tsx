@@ -16,6 +16,7 @@ const navItems = [
   { label: "Về chúng tôi", href: "/about" },
   { label: "Liên hệ", href: "/contact" },
   { label: "Theo dõi sức khỏe", href: "/monitor" },
+  { label: "Lịch sử cảnh báo", href: "/alertHistory" },
 ];
 
 export function Header() {

@@ -1,5 +1,5 @@
 // components/CircularGauge.tsx
-import { cn } from "../../lib/utils"; // relative path từ root
+import { cn } from "../lib/utils"; // relative path từ root
 
 interface CircularGaugeProps {
   value: number; // Giá trị hiện tại (ví dụ: 36.8)
