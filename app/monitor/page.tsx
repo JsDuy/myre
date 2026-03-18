@@ -1,19 +1,60 @@
-// app/monitor/page.tsx
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { CircularGauge } from "../../components/CircularGauge";
-import { AlertDanger } from "../../components/AlertDanger";
+import { CircularGauge } from "@/components/CircularGauge"; // điều chỉnh path nếu cần
+import { AlertDanger } from "@/components/AlertDanger";
 import { toast } from "sonner";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { X } from "lucide-react";
-import { ClientOnlyDate } from "@/components/ClientOnlyDate";
+import { ref, onValue, off } from "firebase/database";
+import { db } from "@/lib/firebase";
+import { useDevice } from "@/providers/DeviceProvider";
+import { useAuth } from "@/providers/AuthProvider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+// ──────────────────────────────────────────────
+// TYPE cho dữ liệu health (dựa trên code bạn)
+interface HealthMetric {
+  label: string;
+  value: number;
+  unit: string;
+  min: number;
+  max: number;
+  safeMin: number;
+  safeMax: number;
+  note?: string;
+}
+
+interface Alert {
+  id: string;
+  timestamp: string;
+  message: string;
+  details: string;
+  label: string;
+}
+
 export default function HealthMonitorPage() {
-  const [data] = useState([
+  const { user } = useAuth();
+  const { selectedDevice, loading: deviceLoading } = useDevice();
+
+  const [metrics, setMetrics] = useState<HealthMetric[]>([
+    {
+      label: "Nhịp tim",
+      value: 0,
+      unit: "bpm",
+      min: 40,
+      max: 180,
+      safeMin: 60,
+      safeMax: 100,
+    },
     {
       label: "Nhiệt độ cơ thể",
-      value: 36.8,
+      value: 0,
       unit: "°C",
       min: 30,
       max: 42,
@@ -22,7 +63,7 @@ export default function HealthMonitorPage() {
     },
     {
       label: "Nồng độ oxy (SpO2)",
-      value: 95,
+      value: 0,
       unit: "%",
       min: 70,
       max: 100,
@@ -31,7 +72,7 @@ export default function HealthMonitorPage() {
     },
     {
       label: "Nhiệt độ môi trường",
-      value: 28.5,
+      value: 0,
       unit: "°C",
       min: 0,
       max: 50,
@@ -40,7 +81,7 @@ export default function HealthMonitorPage() {
     },
     {
       label: "Nồng độ khí gas",
-      value: 45,
+      value: 0,
       unit: "ppm",
       min: 0,
       max: 500,
@@ -49,7 +90,7 @@ export default function HealthMonitorPage() {
     },
     {
       label: "Độ ẩm môi trường",
-      value: 45,
+      value: 0,
       unit: "%",
       min: 0,
       max: 100,
@@ -58,162 +99,147 @@ export default function HealthMonitorPage() {
     },
     {
       label: "Huyết áp (Systolic)",
-      value: 90,
+      value: 0,
       unit: "mmHg",
       min: 60,
       max: 200,
       safeMin: 90,
       safeMax: 120,
-      note: "118/78 mmHg",
+      note: "N/A",
     },
   ]);
 
-  const [alertHistory, setAlertHistory] = useState<
-    Array<{
-      id: string;
-      timestamp: string;
-      message: string;
-      details: string;
-      label: string; // để biết item nào
-    }>
-  >([]);
-  useEffect(() => {
-    console.log("alertHistory thay đổi:", alertHistory);
-  }, [alertHistory]);
+  const [alertHistory, setAlertHistory] = useState<Alert[]>([]);
+  const [soundMuted, setSoundMuted] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
 
   const toastIdsRef = useRef<Record<string, string>>({});
-  const [soundMuted, setSoundMuted] = useState(false);
-
-  // Ref lưu trạng thái "đã beep cho thông số này chưa" (key: label)
   const beepedRef = useRef<Record<string, boolean>>({});
-
-  // Ref để lưu instance của audio đang phát
   const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  // Ref để theo dõi trạng thái đang phát âm thanh
   const isPlayingRef = useRef(false);
 
-  // Tính hasDanger tổng thể
   const hasDanger = useMemo(
-    () =>
-      data.some(
-        (item) => item.value < item.safeMin || item.value > item.safeMax,
-      ),
-    [data],
+    () => metrics.some((m) => m.value < m.safeMin || m.value > m.safeMax),
+    [metrics],
   );
+  useEffect(() => {
+    if (!user || !selectedDevice || deviceLoading) return;
 
-  // Hàm dừng âm thanh
+    const deviceId = selectedDevice.id;
+    const healthRef = ref(db, `devices/${deviceId}/health_data/latest`);
+
+    const unsubscribe = onValue(
+      healthRef,
+      (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        setMetrics((prev) =>
+          prev.map((item) => {
+            let value = item.value;
+            let note = item.note;
+
+            switch (item.label) {
+              case "Nhịp tim":
+                value = Number(data.heartRate) || 0;
+                break;
+              case "Nồng độ oxy (SpO2)":
+                value = Number(data.spo || data.spo2) || 0;
+                break;
+              case "Nhiệt độ cơ thể":
+              case "Nhiệt độ môi trường":
+                value = Number(data.temperature) || 0;
+                break;
+              case "Nồng độ khí gas":
+                value = Number(data.gas) || 0;
+                break;
+              case "Độ ẩm môi trường":
+                value = Number(data.humidity) || 0;
+                break;
+              case "Huyết áp (Systolic)":
+                const bp = data.bloodPressure || "--/--";
+                note = bp;
+                value = Number(bp.split("/")[0]) || 0; // lấy systolic
+                break;
+            }
+
+            return { ...item, value, note };
+          }),
+        );
+
+        setIsOnline(true);
+      },
+      (err) => {
+        console.error("Realtime error:", err);
+        setIsOnline(false);
+        toast.error("Mất kết nối realtime với thiết bị");
+      },
+    );
+
+    return () => {
+      off(healthRef);
+      unsubscribe();
+    };
+  }, [user, selectedDevice, deviceLoading]);
+  // ──────────────────────────────────────────────
+  // Hàm phát / dừng âm thanh
+  const playAlertSound = () => {
+    if (isPlayingRef.current || soundMuted) return;
+
+    try {
+      const audio = new Audio("/sounds/0311(1).MP3");
+      audio.volume = 0.7;
+      audio.loop = true;
+      audioRef.current = audio;
+      audio
+        .play()
+        .then(() => {
+          isPlayingRef.current = true;
+        })
+        .catch((err) => console.warn("Autoplay blocked:", err));
+    } catch (err) {
+      console.error("Lỗi phát âm thanh:", err);
+    }
+  };
+
   const stopAlertSound = () => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
       audioRef.current = null;
       isPlayingRef.current = false;
-      console.log("Đã dừng âm thanh cảnh báo");
     }
   };
 
-  // Hàm phát âm thanh lặp lại
-  const playAlertSound = () => {
-    // Nếu đang phát rồi thì không phát lại
-    if (isPlayingRef.current) return;
-
-    try {
-      // Tạo audio instance mới
-      const audio = new Audio("/sounds/0311(1).MP3");
-      audio.volume = 1;
-      audio.loop = true; // Lặp lại vô hạn
-
-      // Lưu vào ref
-      audioRef.current = audio;
-
-      const playPromise = audio.play();
-
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            isPlayingRef.current = true;
-            console.log("Bắt đầu phát âm thanh cảnh báo (lặp lại)");
-          })
-          .catch((error) => {
-            console.log("Trình duyệt đã chặn phát âm thanh:", error);
-            audioRef.current = null;
-          });
-      }
-    } catch (e) {
-      console.log("Lỗi phát âm thanh:", e);
-    }
-  };
-
-  // useEffect(() => {
-  //   // Luôn kiểm tra và dừng âm thanh nếu soundMuted = true
-  //   if (soundMuted) {
-  //     stopAlertSound();
-  //     return;
-  //   }
-
-  //   // Kiểm tra xem có thông số nào đang nguy hiểm không
-  //   const currentlyHasDanger = data.some(
-  //     (item) => item.value < item.safeMin || item.value > item.safeMax,
-  //   );
-
-  //   // Nếu có nguy hiểm và chưa phát âm thanh thì phát
-  //   if (currentlyHasDanger && !isPlayingRef.current) {
-  //     playAlertSound();
-  //   }
-  //   // Nếu không còn nguy hiểm và đang phát thì dừng
-  //   else if (!currentlyHasDanger && isPlayingRef.current) {
-  //     stopAlertSound();
-  //   }
-
-  //   // Cập nhật trạng thái beepedRef cho từng thông số
-  //   data.forEach((item) => {
-  //     const isCurrentlyDanger =
-  //       item.value < item.safeMin || item.value > item.safeMax;
-
-  //     if (isCurrentlyDanger) {
-  //       beepedRef.current[item.label] = true;
-  //     } else {
-  //       delete beepedRef.current[item.label];
-  //     }
-  //   });
-  // }, [data, soundMuted]);
-
-  // Cleanup khi component unmount
-
+  // ──────────────────────────────────────────────
+  // Logic alert & sound (chạy khi metrics thay đổi)
   useEffect(() => {
-    // Luôn kiểm tra và dừng âm thanh nếu soundMuted = true
     if (soundMuted) {
       stopAlertSound();
       return;
     }
 
-    // Kiểm tra tổng danger
-    const currentlyHasDanger = data.some(
-      (item) => item.value < item.safeMin || item.value > item.safeMax,
+    const currentlyHasDanger = metrics.some(
+      (m) => m.value < m.safeMin || m.value > m.safeMax,
     );
 
-    // Quản lý âm thanh
     if (currentlyHasDanger && !isPlayingRef.current) {
       playAlertSound();
     } else if (!currentlyHasDanger && isPlayingRef.current) {
       stopAlertSound();
-
-      // Hết danger toàn bộ → đóng hết toast (phòng miss)
+      // Đóng hết toast khi hết danger toàn bộ
       Object.values(toastIdsRef.current).forEach((id) => toast.dismiss(id));
       toastIdsRef.current = {};
     }
 
-    // Xử lý từng item
-    data.forEach((item) => {
-      const isCurrentlyDanger =
-        item.value < item.safeMin || item.value > item.safeMax;
+    // Xử lý từng metric
+    metrics.forEach((item) => {
+      const isDanger = item.value < item.safeMin || item.value > item.safeMax;
       const wasBeeped = beepedRef.current[item.label] ?? false;
 
-      if (isCurrentlyDanger) {
+      if (isDanger) {
         beepedRef.current[item.label] = true;
 
-        // Danger mới → tạo toast và lưu ID
         if (!wasBeeped) {
           const timestamp = new Date().toLocaleString("vi-VN", {
             timeZone: "Asia/Ho_Chi_Minh",
@@ -221,7 +247,6 @@ export default function HealthMonitorPage() {
           const message = `${item.label} vượt ngưỡng an toàn!`;
           const details = `Giá trị: ${item.value}${item.unit} (an toàn: ${item.safeMin} – ${item.safeMax})`;
 
-          // Thêm vào lịch sử
           setAlertHistory((prev) => [
             {
               id: `${item.label}-${Date.now()}`,
@@ -232,67 +257,86 @@ export default function HealthMonitorPage() {
             },
             ...prev,
           ]);
+
           const toastId = toast.error(message, {
             description: details,
             duration: Infinity,
-            closeButton: true,
             icon: <AlertTriangle className="h-5 w-5" />,
             action: {
               label: "Chi tiết",
-              onClick: () => {
-                console.log("Xem chi tiết:", item.label);
-                // Optional scroll: document.getElementById(`gauge-${item.label.replace(/\s+/g, '-')}`)?.scrollIntoView({ behavior: 'smooth' });
-              },
+              onClick: () => console.log("Chi tiết:", item.label),
             },
-          });
+          }) as string;
 
-          // Lưu ID (ép kiểu nếu TS kêu)
-          toastIdsRef.current[item.label] = toastId as string;
+          toastIdsRef.current[item.label] = toastId;
         }
       } else {
-        // Hết danger → xóa đánh dấu + đóng toast nếu tồn tại
         delete beepedRef.current[item.label];
-
-        const existingToastId = toastIdsRef.current[item.label];
-        if (existingToastId) {
-          toast.dismiss(existingToastId);
+        const id = toastIdsRef.current[item.label];
+        if (id) {
+          toast.dismiss(id);
           delete toastIdsRef.current[item.label];
         }
       }
     });
-  }, [data, soundMuted]);
+  }, [metrics, soundMuted]);
 
+  // Cleanup
   useEffect(() => {
-    return () => {
-      stopAlertSound();
-    };
+    return () => stopAlertSound();
   }, []);
 
-  const handleMuteToggle = () => {
-    setSoundMuted((prev) => !prev);
-  };
+  // ──────────────────────────────────────────────
+  // TODO: Tích hợp Firebase realtime ở đây (sẽ làm ở bước tiếp theo)
+  // useEffect(() => {
+  //   // listener Firebase
+  // }, [selectedDeviceId]);
 
   return (
     <div className="container mx-auto px-4 py-12">
-      <AlertDanger
-        isDanger={hasDanger}
-        muted={soundMuted}
-        onMuteToggle={handleMuteToggle}
-      />
+      {/* Phần header với dropdown */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
+        <div>
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
+            Theo dõi sức khỏe thời gian thực
+          </h1>
+          <p className="text-xl text-muted-foreground mt-2">
+            {selectedDevice
+              ? `Thiết bị: ${selectedDevice.name} (${selectedDevice.id})`
+              : "Chưa chọn thiết bị"}
+          </p>
+        </div>
 
-      <div className="text-center mb-12">
-        <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-          Theo dõi sức khỏe thời gian thực
-        </h1>
-        <p className="text-xl text-muted-foreground">
-          Giám sát 6 thông số quan trọng
-        </p>
+        {/* Dropdown chọn thiết bị */}
+        <div className="w-full md:w-72">
+          <Select
+            value={selectedDevice?.id || ""}
+            onValueChange={(deviceId) => {
+              const dev = devices.find((d) => d.id === deviceId);
+              if (dev) setSelectedDevice(dev);
+            }}
+            disabled={devices.length === 0 || deviceLoading}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Chọn thiết bị" />
+            </SelectTrigger>
+            <SelectContent>
+              {devices.map((dev) => (
+                <SelectItem key={dev.id} value={dev.id}>
+                  {dev.name} (
+                  {dev.role === "owner" ? "Chủ sở hữu" : "Được chia sẻ"})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
+      {/* Grid gauge - giữ nguyên */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 md:gap-12">
-        {data.map((item, index) => (
+        {metrics.map((item, idx) => (
           <CircularGauge
-            key={index}
+            key={idx}
             value={item.value}
             min={item.min}
             max={item.max}
@@ -305,6 +349,7 @@ export default function HealthMonitorPage() {
           />
         ))}
       </div>
+
       {alertHistory.length > 0 && (
         <div className="mb-8 bg-red-50 border border-red-200 rounded-lg p-6 shadow-sm mt-12">
           <div className="flex items-center justify-between mb-4">
@@ -353,10 +398,10 @@ export default function HealthMonitorPage() {
           </div>
         </div>
       )}
+
       <div className="text-center mt-12 text-sm text-muted-foreground">
-        Dữ liệu cập nhật mỗi 5 giây • Cập nhật lần cuối:{" "}
-        {/* {new Date().toLocaleTimeString("vi-VN")} */}
-        {/* <ClientOnlyDate /> */}
+        Dữ liệu cập nhật realtime • Cập nhật lần cuối:{" "}
+        {new Date().toLocaleTimeString("vi-VN")}
       </div>
     </div>
   );

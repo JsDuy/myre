@@ -1,6 +1,11 @@
-// app/login/page.tsx
+"use client";
 
-import { Button } from "../../components/ui/button";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
@@ -8,89 +13,95 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "../../components/ui/card";
-import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
-import { Separator } from "../../components/ui/separator";
-import { Checkbox } from "../../components/ui/checkbox";
-import Link from "next/link";
+} from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/ui/use-toast";
 
 export default function LoginPage() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+  const { toast } = useToast();
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      toast({
+        title: "Đăng nhập thành công",
+        description: "Chào mừng bạn quay lại!",
+      });
+      router.push("/monitor"); // hoặc trang chính bạn muốn redirect
+    } catch (error: any) {
+      let message = "Đăng nhập thất bại. Vui lòng thử lại.";
+      switch (error.code) {
+        case "auth/wrong-password":
+          message = "Mật khẩu không đúng.";
+          break;
+        case "auth/user-not-found":
+          message = "Không tìm thấy tài khoản với email này.";
+          break;
+        case "auth/invalid-email":
+          message = "Email không hợp lệ.";
+          break;
+        case "auth/user-disabled":
+          message = "Tài khoản đã bị vô hiệu hóa.";
+          break;
+      }
+      toast({
+        variant: "destructive",
+        title: "Lỗi đăng nhập",
+        description: message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center px-4 py-12 bg-gradient-to-b from-background to-muted/50">
-      <Card className="w-full max-w-md shadow-xl border-border/50">
-        <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-3xl font-bold tracking-tight">
-            Đăng nhập
-          </CardTitle>
-          <CardDescription className="text-base">
-            Nhập thông tin để tiếp tục
-          </CardDescription>
+    <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle className="text-2xl">Đăng nhập</CardTitle>
+          <CardDescription>Đăng nhập để xem dữ liệu thiết bị</CardDescription>
         </CardHeader>
-
-        <CardContent className="space-y-6 pt-4">
-          {/* Social login placeholder */}
-          <div className="grid grid-cols-2 gap-4">
-            <Button variant="outline" className="w-full gap-2">
-              Google
-            </Button>
-            <Button variant="outline" className="w-full gap-2">
-              GitHub
-            </Button>
-          </div>
-
-          <div className="relative my-2">
-            <div className="absolute inset-0 flex items-center">
-              <Separator />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Hoặc</span>
-            </div>
-          </div>
-
-          {/* Form fields */}
-          <div className="space-y-4">
+        <CardContent>
+          <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" placeholder="example@email.com" />
+              <Input
+                id="email"
+                type="email"
+                placeholder="example@email.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
             </div>
-
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Mật khẩu</Label>
-                <Link
-                  href="/forgot-password"
-                  className="text-sm text-primary hover:underline"
-                >
-                  Quên mật khẩu?
-                </Link>
-              </div>
-              <Input id="password" type="password" placeholder="••••••••" />
+              <Label htmlFor="password">Mật khẩu</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
             </div>
-
-            <div className="flex items-center space-x-2">
-              <Checkbox id="remember" />
-              <Label
-                htmlFor="remember"
-                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-              >
-                Nhớ đăng nhập
-              </Label>
-            </div>
-          </div>
-
-          <Button className="w-full text-base py-6">Đăng nhập</Button>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Đang đăng nhập..." : "Đăng nhập"}
+            </Button>
+          </form>
         </CardContent>
-
-        <CardFooter className="flex flex-col space-y-2 text-center text-sm pt-2 border-t">
-          <p className="text-muted-foreground">
+        <CardFooter className="flex justify-center">
+          <p className="text-sm text-muted-foreground">
             Chưa có tài khoản?{" "}
-            <Link
-              href="/register"
-              className="text-primary hover:underline font-medium"
-            >
+            <a href="/register" className="text-primary hover:underline">
               Đăng ký ngay
-            </Link>
+            </a>
           </p>
         </CardFooter>
       </Card>
