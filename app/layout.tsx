@@ -33,13 +33,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={cn("font-sans", inter.variable)}>
-      <DeviceProvider>
-        <NavigationProvider>
-          <body
-            className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-            suppressHydrationWarning
-          >
-            <AuthProvider>
+      <AuthProvider>
+        <body
+          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+          suppressHydrationWarning
+        >
+          <DeviceProvider>
+            <NavigationProvider>
               <HydrationFix />
               <Header /> {children}
               {/* <Toaster
@@ -56,10 +56,10 @@ export default function RootLayout({
         /> */}
               <ClientToaster />
               <Footer />
-            </AuthProvider>
-          </body>
-        </NavigationProvider>
-      </DeviceProvider>
+            </NavigationProvider>
+          </DeviceProvider>
+        </body>
+      </AuthProvider>
     </html>
   );
 }

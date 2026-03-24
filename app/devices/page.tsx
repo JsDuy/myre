@@ -1,14 +1,22 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ref, onValue, remove } from "firebase/database";
+import { ref, onValue, remove, update } from "firebase/database";
 import { auth, db } from "@/lib/firebase";
-import { devicesRef } from "@/lib/firebase-devices-ref";
+import { userDevicesRef } from "@/lib/firebase-devices-ref";
 import { useDevice } from "@/providers/DeviceProvider";
 import { useNavigation } from "@/context/navigation-context";
 import { toast } from "sonner";
 
-import { Plus, Share2, Users, Trash2, ArrowRight, Server } from "lucide-react";
+import {
+  Plus,
+  Share2,
+  Users,
+  Trash2,
+  ArrowRight,
+  Server,
+  Edit,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -23,7 +31,7 @@ import { Label } from "@/components/ui/label";
 
 import SharedMembersDialog from "@/components/SharedMembersDialog";
 
-const BASE_URL = "http://192.168.163.253:8000";
+const BASE_URL = "http://192.168.5.108:8000";
 
 const DeviceApi = {
   async registerDevice(
@@ -106,11 +114,17 @@ export default function DevicesPage() {
     name: string;
   } | null>(null);
 
+  // ==================== STATE MỚI CHO CHỈNH SỬA THÔNG TIN (Owner) ====================
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [selectedDeviceForEdit, setSelectedDeviceForEdit] = useState<any>(null);
+  const [newDeviceName, setNewDeviceName] = useState("");
+
   const { selectDevice } = useDevice();
   const { setIndex } = useNavigation();
   const user = auth.currentUser;
 
-  // Lấy danh sách thiết bị realtime từ Firebase
+  // ==================== LẤY DANH SÁCH THIẾT BỊ REALTIME (ĐÃ FIX) ====================
   useEffect(() => {
     if (!user) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -119,7 +133,9 @@ export default function DevicesPage() {
     }
 
     setLoading(true);
-    const unsub = onValue(devicesRef, (snapshot) => {
+    const deviceListRef = userDevicesRef(user.uid); // ← ĐÃ SỬA: chỉ lấy devices của user hiện tại
+
+    const unsub = onValue(deviceListRef, (snapshot) => {
       if (!snapshot.exists()) {
         setDevices([]);
       } else {
@@ -137,7 +153,7 @@ export default function DevicesPage() {
     return () => unsub();
   }, [user]);
 
-  // ==================== THÊM THIẾT BỊ ====================
+  // ==================== THÊM THIẾT BỊ (giữ nguyên 100%) ====================
   const handleAddDevice = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
@@ -161,7 +177,7 @@ export default function DevicesPage() {
     }
   };
 
-  // ==================== CHIA SẺ THIẾT BỊ ====================
+  // ==================== CHIA SẺ THIẾT BỊ (giữ nguyên 100%) ====================
   const handleShareDevice = async (deviceId: string, email: string) => {
     if (!email) return;
     try {
@@ -173,7 +189,7 @@ export default function DevicesPage() {
     }
   };
 
-  // ==================== XÓA THIẾT BỊ (Viewer) ====================
+  // ==================== XÓA THIẾT BỊ (Viewer) (giữ nguyên 100%) ====================
   const handleRemoveDevice = async (deviceId: string, deviceName: string) => {
     if (!confirm(`Ngừng theo dõi thiết bị "${deviceName}"?`)) return;
 
@@ -187,7 +203,27 @@ export default function DevicesPage() {
     }
   };
 
-  // Mở dialog quản lý người được chia sẻ
+  // ==================== MỚI: CẬP NHẬT TÊN THIẾT BỊ (Owner) ====================
+  const handleUpdateDeviceName = async () => {
+    if (!selectedDeviceForEdit || !newDeviceName.trim() || !user) return;
+
+    try {
+      const deviceRef = ref(
+        db,
+        `users/${user.uid}/devices/${selectedDeviceForEdit.id}`,
+      );
+      await update(deviceRef, { nickname: newDeviceName.trim() });
+      toast.success("✅ Cập nhật tên thiết bị thành công!");
+      setEditDialogOpen(false);
+      setSelectedDeviceForEdit(null);
+      setNewDeviceName("");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      toast.error("❌ Lỗi cập nhật tên thiết bị", { description: err.message });
+    }
+  };
+
+  // Mở dialog quản lý người được chia sẻ (giữ nguyên)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const openMembersDialog = (dev: any) => {
     setSelectedDeviceForMembers({
@@ -195,6 +231,14 @@ export default function DevicesPage() {
       name: dev.nickname || `Thiết bị ${dev.id}`,
     });
     setMembersDialogOpen(true);
+  };
+
+  // Mở dialog chỉnh sửa (mới)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const openEditDialog = (dev: any) => {
+    setSelectedDeviceForEdit(dev);
+    setNewDeviceName(dev.nickname || "");
+    setEditDialogOpen(true);
   };
 
   if (!user) {
@@ -210,6 +254,7 @@ export default function DevicesPage() {
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">Thiết bị của bạn</h1>
 
+        {/* Dialog thêm thiết bị (giữ nguyên 100%) */}
         <Dialog>
           <DialogTrigger asChild>
             <Button>
@@ -282,7 +327,7 @@ export default function DevicesPage() {
                   <div className="flex items-center gap-2">
                     {isOwner && (
                       <>
-                        {/* Chia sẻ nhanh */}
+                        {/* Chia sẻ nhanh (giữ nguyên) */}
                         <Dialog>
                           <DialogTrigger asChild>
                             <Button variant="outline" size="icon">
@@ -311,13 +356,22 @@ export default function DevicesPage() {
                           </DialogContent>
                         </Dialog>
 
-                        {/* Quản lý người được chia sẻ */}
+                        {/* Quản lý người được chia sẻ (giữ nguyên) */}
                         <Button
                           variant="outline"
                           size="icon"
                           onClick={() => openMembersDialog(dev)}
                         >
                           <Users className="h-4 w-4" />
+                        </Button>
+
+                        {/* CHỈNH SỬA TÊN (mới - đầy đủ chức năng bạn yêu cầu) */}
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => openEditDialog(dev)}
+                        >
+                          <Edit className="h-4 w-4" />
                         </Button>
                       </>
                     )}
@@ -332,7 +386,7 @@ export default function DevicesPage() {
                       </Button>
                     )}
 
-                    {/* Vào theo dõi thiết bị */}
+                    {/* Vào theo dõi thiết bị (giữ nguyên) */}
                     <Button
                       onClick={() => {
                         selectDevice(dev.id, deviceName);
@@ -350,7 +404,7 @@ export default function DevicesPage() {
         </div>
       )}
 
-      {/* Dialog quản lý thành viên */}
+      {/* Dialog quản lý thành viên (giữ nguyên) */}
       {selectedDeviceForMembers && (
         <SharedMembersDialog
           open={membersDialogOpen}
@@ -359,6 +413,28 @@ export default function DevicesPage() {
           deviceName={selectedDeviceForMembers.name}
         />
       )}
+
+      {/* ==================== DIALOG CHỈNH SỬA TÊN THIẾT BỊ (mới) ==================== */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Chỉnh sửa thông tin thiết bị</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Tên thiết bị mới</Label>
+              <Input
+                value={newDeviceName}
+                onChange={(e) => setNewDeviceName(e.target.value)}
+                placeholder="Nhập tên thiết bị mới"
+              />
+            </div>
+            <Button onClick={handleUpdateDeviceName} className="w-full">
+              Lưu thay đổi
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

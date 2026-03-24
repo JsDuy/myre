@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Trash2, User } from "lucide-react";
 import { auth } from "@/lib/firebase";
 
-const BASE_URL = "http://192.168.163.253:8000";
+const BASE_URL = "http://192.168.5.108:8000";
 
 interface Member {
   user_uid: string;
@@ -50,6 +50,7 @@ export default function SharedMembersDialog({
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
         setMembers(data);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         toast.error("Không thể tải danh sách", { description: err.message });
       } finally {
@@ -82,6 +83,7 @@ export default function SharedMembersDialog({
 
       toast.success(`Đã thu hồi quyền của ${member.email}`);
       setMembers((prev) => prev.filter((m) => m.user_uid !== member.user_uid));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       toast.error("Lỗi thu hồi quyền", { description: err.message });
     }

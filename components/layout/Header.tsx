@@ -10,16 +10,23 @@ import {
 } from "@/components/ui/sheet";
 import { Menu } from "lucide-react"; // Icon từ lucide-react (shadcn dùng mặc định)
 import Link from "next/link";
-
-const navItems = [
-  { label: "Trang chủ", href: "/" },
-  { label: "Về chúng tôi", href: "/about" },
-  { label: "Liên hệ", href: "/contact" },
-  { label: "Theo dõi sức khỏe", href: "/monitor" },
-  { label: "Lịch sử cảnh báo", href: "/alertHistory" },
-];
+import { useDevice } from "@/providers/DeviceProvider"; // Lấy deviceId hiện tại từ context
 
 export function Header() {
+  const { selectedDevice, devices } = useDevice();
+  const navItems = [
+    { label: "Trang chủ", href: "/" },
+    { label: "Về chúng tôi", href: "/about" },
+    { label: "Liên hệ", href: "/contact" },
+    { label: "Theo dõi sức khỏe", href: "/monitor" },
+    {
+      label: "Lịch sử cảnh báo",
+      href: selectedDevice
+        ? `/alertHistory/${selectedDevice.id}`
+        : "/alertHistory", // fallback nếu chưa có device
+    },
+    { label: "Danh sách thiết bị", href: "/devices" },
+  ];
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between">
