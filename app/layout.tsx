@@ -8,6 +8,7 @@ import { Footer } from "@/components/layout/Footer";
 import { ClientToaster } from "@/components/ClientToaster";
 import { HydrationFix } from "@/components/HydrationFix";
 import { DeviceProvider } from "@/providers/DeviceProvider";
+import { NavigationProvider } from "@/context/navigation-context";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 const geistSans = Geist({
@@ -32,15 +33,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={cn("font-sans", inter.variable)}>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-        suppressHydrationWarning
-      >
-        <AuthProvider>
-          <DeviceProvider>
-            <HydrationFix />
-            <Header /> {children}
-            {/* <Toaster
+      <DeviceProvider>
+        <NavigationProvider>
+          <body
+            className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+            suppressHydrationWarning
+          >
+            <AuthProvider>
+              <HydrationFix />
+              <Header /> {children}
+              {/* <Toaster
           position="bottom-right" // giống Zalo: góc phải dưới
           richColors // màu đẹp cho error/warning
           duration={5000} // tự tắt sau 5 giây
@@ -52,11 +54,12 @@ export default function RootLayout({
             },
           }}
         /> */}
-            <ClientToaster />
-            <Footer />
-          </DeviceProvider>
-        </AuthProvider>
-      </body>
+              <ClientToaster />
+              <Footer />
+            </AuthProvider>
+          </body>
+        </NavigationProvider>
+      </DeviceProvider>
     </html>
   );
 }

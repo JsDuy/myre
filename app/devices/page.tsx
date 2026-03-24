@@ -1,12 +1,16 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { ref, onValue, remove } from "firebase/database";
+import { auth, db } from "@/lib/firebase";
+import { devicesRef } from "@/lib/firebase-devices-ref";
 import { useDevice } from "@/providers/DeviceProvider";
-import { useAuth } from "@/providers/AuthProvider";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useNavigation } from "@/context/navigation-context";
+import { toast } from "sonner";
+
+import { Plus, Share2, Users, Trash2, ArrowRight, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -14,179 +18,346 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { toast } from "sonner";
-import { ShieldCheck, UserPlus, Trash2, Share2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
-// Hàm gọi API (tương tự device_api.dart)
-const BASE_URL = "http://192.168.1.102:8000"; // thay bằng env sau
+import SharedMembersDialog from "@/components/SharedMembersDialog";
 
-async function registerDevice(
-  deviceCode: string,
-  deviceUid: string,
-  deviceName: string,
-) {
-  const token = await auth.currentUser?.getIdToken();
-  const res = await fetch(`${BASE_URL}/devices/register`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      device_code: deviceCode,
-      device_uid: deviceUid,
-      device_name: deviceName,
-    }),
-  });
-  if (!res.ok) throw new Error(await res.text());
-}
+const BASE_URL = "http://192.168.163.253:8000";
 
-async function shareDevice(deviceUid: string, targetEmail: string) {
-  const token = await auth.currentUser?.getIdToken();
-  const res = await fetch(`${BASE_URL}/devices/share`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ device_uid: deviceUid, target_email: targetEmail }),
-  });
-  if (!res.ok) throw new Error(await res.text());
-}
+const DeviceApi = {
+  async registerDevice(
+    deviceCode: string,
+    deviceUid: string,
+    deviceName: string,
+  ) {
+    const token = await auth.currentUser?.getIdToken();
+    const res = await fetch(`${BASE_URL}/devices/register`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        device_code: deviceCode,
+        device_uid: deviceUid,
+        device_name: deviceName,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  },
 
-// Trang Devices
+  async shareDevice(deviceUid: string, targetEmail: string) {
+    const token = await auth.currentUser?.getIdToken();
+    const res = await fetch(`${BASE_URL}/devices/share`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        device_uid: deviceUid,
+        target_email: targetEmail,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  },
+
+  async revokeDevice(
+    deviceUid: string,
+    targetUserUid: string,
+    targetEmail: string,
+  ) {
+    const token = await auth.currentUser?.getIdToken();
+    const res = await fetch(`${BASE_URL}/devices/revoke`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        device_uid: deviceUid,
+        target_user_uid: targetUserUid,
+        target_email: targetEmail,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  },
+
+  async getDeviceMembers(deviceUid: string) {
+    const token = await auth.currentUser?.getIdToken();
+    const res = await fetch(`${BASE_URL}/devices/${deviceUid}/members`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+};
+
 export default function DevicesPage() {
-  const { user, loading: authLoading } = useAuth();
-  const { devices, selectedDevice, setSelectedDevice, loading } = useDevice();
-  const router = useRouter();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [devices, setDevices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [newCode, setNewCode] = useState("");
-  const [newUid, setNewUid] = useState("");
-  const [newName, setNewName] = useState("");
-  const [shareEmail, setShareEmail] = useState("");
-  const [activeDevice, setActiveDevice] = useState<string | null>(null);
+  // State cho SharedMembersDialog
+  const [membersDialogOpen, setMembersDialogOpen] = useState(false);
+  const [selectedDeviceForMembers, setSelectedDeviceForMembers] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
-  if (authLoading || loading) return <div className="p-8">Đang tải...</div>;
+  const { selectDevice } = useDevice();
+  const { setIndex } = useNavigation();
+  const user = auth.currentUser;
+
+  // Lấy danh sách thiết bị realtime từ Firebase
+  useEffect(() => {
+    if (!user) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const unsub = onValue(devicesRef, (snapshot) => {
+      if (!snapshot.exists()) {
+        setDevices([]);
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = snapshot.val() as Record<string, any>;
+        const list = Object.entries(data).map(([id, dev]) => ({
+          id,
+          ...dev,
+        }));
+        setDevices(list);
+      }
+      setLoading(false);
+    });
+
+    return () => unsub();
+  }, [user]);
+
+  // ==================== THÊM THIẾT BỊ ====================
+  const handleAddDevice = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const deviceId = (
+      form.elements.namedItem("deviceId") as HTMLInputElement
+    ).value.trim();
+    const deviceName =
+      (
+        form.elements.namedItem("deviceName") as HTMLInputElement
+      ).value.trim() || `Thiết bị ${deviceId}`;
+
+    if (!deviceId) return;
+
+    try {
+      await DeviceApi.registerDevice(deviceId, deviceId, deviceName);
+      toast.success("✅ Thêm thiết bị thành công!");
+      form.reset();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      toast.error("❌ Lỗi thêm thiết bị", { description: err.message });
+    }
+  };
+
+  // ==================== CHIA SẺ THIẾT BỊ ====================
+  const handleShareDevice = async (deviceId: string, email: string) => {
+    if (!email) return;
+    try {
+      await DeviceApi.shareDevice(deviceId, email.toLowerCase().trim());
+      toast.success("✅ Đã gửi yêu cầu chia sẻ thiết bị");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      toast.error("❌ Lỗi chia sẻ thiết bị", { description: err.message });
+    }
+  };
+
+  // ==================== XÓA THIẾT BỊ (Viewer) ====================
+  const handleRemoveDevice = async (deviceId: string, deviceName: string) => {
+    if (!confirm(`Ngừng theo dõi thiết bị "${deviceName}"?`)) return;
+
+    try {
+      const deviceRef = ref(db, `users/${user?.uid}/devices/${deviceId}`);
+      await remove(deviceRef);
+      toast.success("Đã ngừng theo dõi thiết bị");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      toast.error("Lỗi khi xóa thiết bị", { description: err.message });
+    }
+  };
+
+  // Mở dialog quản lý người được chia sẻ
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const openMembersDialog = (dev: any) => {
+    setSelectedDeviceForMembers({
+      id: dev.id,
+      name: dev.nickname || `Thiết bị ${dev.id}`,
+    });
+    setMembersDialogOpen(true);
+  };
+
   if (!user) {
-    router.push("/login");
-    return null;
+    return (
+      <div className="p-10 text-center">
+        Vui lòng đăng nhập để xem danh sách thiết bị
+      </div>
+    );
   }
 
   return (
-    <div className="container mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">Thiết bị của bạn</h1>
+    <div className="p-6 max-w-5xl mx-auto">
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold">Thiết bị của bạn</h1>
 
-      <div className="flex justify-between mb-6">
         <Dialog>
           <DialogTrigger asChild>
             <Button>
-              <UserPlus className="mr-2 h-4 w-4" /> Thêm thiết bị
+              <Plus className="mr-2 h-5 w-5" />
+              Thêm thiết bị
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Đăng ký thiết bị mới</DialogTitle>
+              <DialogTitle>Thêm thiết bị mới</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4 py-4">
-              <Input
-                placeholder="Device Code"
-                value={newCode}
-                onChange={(e) => setNewCode(e.target.value)}
-              />
-              <Input
-                placeholder="Device UID"
-                value={newUid}
-                onChange={(e) => setNewUid(e.target.value)}
-              />
-              <Input
-                placeholder="Tên thiết bị"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-              />
-              <Button
-                onClick={async () => {
-                  try {
-                    await registerDevice(newCode, newUid, newName);
-                    toast.success("Đăng ký thiết bị thành công");
-                    // listener realtime sẽ tự update
-                  } catch (err: any) {
-                    toast.error("Lỗi: " + err.message);
-                  }
-                }}
-              >
-                Đăng ký
+            <form onSubmit={handleAddDevice} className="space-y-4">
+              <div>
+                <Label>Device ID</Label>
+                <Input
+                  name="deviceId"
+                  placeholder="Nhập mã thiết bị"
+                  required
+                />
+              </div>
+              <div>
+                <Label>Tên thiết bị (tùy chọn)</Label>
+                <Input
+                  name="deviceName"
+                  placeholder="Ví dụ: Thiết bị phòng ngủ"
+                />
+              </div>
+              <Button type="submit" className="w-full">
+                Thêm thiết bị
               </Button>
-            </div>
+            </form>
           </DialogContent>
         </Dialog>
       </div>
 
-      {devices.length === 0 ? (
-        <Card>
-          <CardContent className="p-8 text-center">
-            Chưa có thiết bị nào. Thêm ngay!
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {devices.map((dev) => (
-            <Card
-              key={dev.id}
-              className={
-                selectedDevice?.id === dev.id ? "border-primary border-2" : ""
-              }
-            >
-              <CardHeader>
-                <CardTitle className="flex justify-between">
-                  {dev.name}
-                  <span className="text-sm text-muted-foreground">
-                    {dev.role}
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex gap-2 mt-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSelectedDevice(dev)}
-                  >
-                    Chọn thiết bị này
-                  </Button>
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="icon">
-                        <Share2 className="h-4 w-4" />
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Chia sẻ thiết bị</DialogTitle>
-                      </DialogHeader>
-                      <Input
-                        placeholder="Email người nhận"
-                        value={shareEmail}
-                        onChange={(e) => setShareEmail(e.target.value)}
-                      />
-                      <Button
-                        onClick={async () => {
-                          try {
-                            await shareDevice(dev.id, shareEmail);
-                            toast.success("Đã chia sẻ");
-                          } catch (err: any) {
-                            toast.error(err.message);
-                          }
-                        }}
-                      >
-                        Chia sẻ
-                      </Button>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+      {loading ? (
+        <div className="flex justify-center py-20">
+          <div className="text-center">
+            <div className="animate-spin h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto" />
+            <p className="mt-4 text-muted-foreground">
+              Đang tải danh sách thiết bị...
+            </p>
+          </div>
         </div>
+      ) : devices.length === 0 ? (
+        <div className="text-center py-20 text-muted-foreground">
+          Chưa có thiết bị nào.
+          <br />
+          Nhấn nút `+` để thêm thiết bị đầu tiên.
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {devices.map((dev) => {
+            const isOwner = dev.role === "owner";
+            const deviceName = dev.nickname || `Thiết bị ${dev.id}`;
+
+            return (
+              <Card key={dev.id} className="overflow-hidden">
+                <CardContent className="p-5 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <Server className="h-10 w-10 text-blue-600" />
+                    <div>
+                      <p className="font-semibold text-lg">{deviceName}</p>
+                      <p className="text-sm text-muted-foreground">
+                        ID: {dev.id}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {isOwner && (
+                      <>
+                        {/* Chia sẻ nhanh */}
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button variant="outline" size="icon">
+                              <Share2 className="h-4 w-4" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Chia sẻ thiết bị</DialogTitle>
+                            </DialogHeader>
+                            <Input
+                              id={`share-input-${dev.id}`}
+                              placeholder="Nhập email người nhận"
+                            />
+                            <Button
+                              onClick={() => {
+                                const input = document.getElementById(
+                                  `share-input-${dev.id}`,
+                                ) as HTMLInputElement;
+                                if (input)
+                                  handleShareDevice(dev.id, input.value);
+                              }}
+                            >
+                              Chia sẻ
+                            </Button>
+                          </DialogContent>
+                        </Dialog>
+
+                        {/* Quản lý người được chia sẻ */}
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => openMembersDialog(dev)}
+                        >
+                          <Users className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
+
+                    {!isOwner && (
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        onClick={() => handleRemoveDevice(dev.id, deviceName)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+
+                    {/* Vào theo dõi thiết bị */}
+                    <Button
+                      onClick={() => {
+                        selectDevice(dev.id, deviceName);
+                        setIndex(0);
+                        window.location.href = "/monitor";
+                      }}
+                    >
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Dialog quản lý thành viên */}
+      {selectedDeviceForMembers && (
+        <SharedMembersDialog
+          open={membersDialogOpen}
+          onOpenChange={setMembersDialogOpen}
+          deviceId={selectedDeviceForMembers.id}
+          deviceName={selectedDeviceForMembers.name}
+        />
       )}
     </div>
   );

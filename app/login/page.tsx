@@ -15,14 +15,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { useToast } from "@/components/ui/use-toast";
-
+import { toast } from "sonner";
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const { toast } = useToast();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,11 +28,9 @@ export default function LoginPage() {
 
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      toast({
-        title: "Đăng nhập thành công",
-        description: "Chào mừng bạn quay lại!",
-      });
+      toast.success("Đăng nhập thành công!");
       router.push("/monitor"); // hoặc trang chính bạn muốn redirect
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       let message = "Đăng nhập thất bại. Vui lòng thử lại.";
       switch (error.code) {
@@ -51,9 +47,7 @@ export default function LoginPage() {
           message = "Tài khoản đã bị vô hiệu hóa.";
           break;
       }
-      toast({
-        variant: "destructive",
-        title: "Lỗi đăng nhập",
+      toast.error("Lỗi đăng nhập", {
         description: message,
       });
     } finally {

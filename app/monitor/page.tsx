@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { CircularGauge } from "@/components/CircularGauge"; // điều chỉnh path nếu cần
-import { AlertDanger } from "@/components/AlertDanger";
 import { toast } from "sonner";
 import { AlertTriangle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,7 +39,12 @@ interface Alert {
 
 export default function HealthMonitorPage() {
   const { user } = useAuth();
-  const { selectedDevice, loading: deviceLoading } = useDevice();
+  const {
+    selectedDevice,
+    setSelectedDevice,
+    devices,
+    loading: deviceLoading,
+  } = useDevice();
 
   const [metrics, setMetrics] = useState<HealthMetric[]>([
     {
@@ -83,10 +87,10 @@ export default function HealthMonitorPage() {
       label: "Nồng độ khí gas",
       value: 0,
       unit: "ppm",
-      min: 0,
-      max: 500,
-      safeMin: 0,
-      safeMax: 100,
+      min: 300,
+      max: 700,
+      safeMin: 350,
+      safeMax: 620,
     },
     {
       label: "Độ ẩm môi trường",
@@ -128,38 +132,48 @@ export default function HealthMonitorPage() {
     const deviceId = selectedDevice.id;
     const healthRef = ref(db, `devices/${deviceId}/health_data/latest`);
 
+    console.log("Listening to:", healthRef.toString()); // debug
+
     const unsubscribe = onValue(
       healthRef,
       (snapshot) => {
         const data = snapshot.val();
-        if (!data) return;
+        if (!data) {
+          setIsOnline(false);
+          toast.warning("Không có dữ liệu health mới từ thiết bị");
+          return;
+        }
 
         setMetrics((prev) =>
           prev.map((item) => {
             let value = item.value;
-            let note = item.note;
+            let note: string | undefined = item.note;
 
             switch (item.label) {
               case "Nhịp tim":
-                value = Number(data.heartRate) || 0;
+                value = Number(data.heartRate ?? data.hr ?? 0);
                 break;
               case "Nồng độ oxy (SpO2)":
-                value = Number(data.spo || data.spo2) || 0;
+                value = Number(data.spo2 ?? data.spo ?? 0);
                 break;
               case "Nhiệt độ cơ thể":
+                value = Number(data.bodyTemp ?? data.temperature ?? 0); // app gốc có thể phân biệt
+                break;
               case "Nhiệt độ môi trường":
-                value = Number(data.temperature) || 0;
+                value = Number(data.envTemp ?? data.temperature ?? 0);
                 break;
               case "Nồng độ khí gas":
-                value = Number(data.gas) || 0;
+                value = Number(data.gas ?? data.gasLevel ?? 0);
                 break;
               case "Độ ẩm môi trường":
-                value = Number(data.humidity) || 0;
+                value = Number(data.humidity ?? 0);
                 break;
               case "Huyết áp (Systolic)":
                 const bp = data.bloodPressure || "--/--";
-                note = bp;
-                value = Number(bp.split("/")[0]) || 0; // lấy systolic
+                note = bp; // giữ nguyên dạng "90/120"
+                value = Number(bp.split("/")[0]) || 0;
+                break;
+              default:
                 break;
             }
 
@@ -170,9 +184,11 @@ export default function HealthMonitorPage() {
         setIsOnline(true);
       },
       (err) => {
-        console.error("Realtime error:", err);
+        console.error("Firebase Realtime error:", err);
         setIsOnline(false);
-        toast.error("Mất kết nối realtime với thiết bị");
+        toast.error(
+          "Mất kết nối realtime với thiết bị. Kiểm tra mạng hoặc quyền truy cập.",
+        );
       },
     );
 
@@ -214,7 +230,7 @@ export default function HealthMonitorPage() {
   // ──────────────────────────────────────────────
   // Logic alert & sound (chạy khi metrics thay đổi)
   useEffect(() => {
-    if (soundMuted) {
+    if (soundMuted || !isOnline) {
       stopAlertSound();
       return;
     }
@@ -279,7 +295,7 @@ export default function HealthMonitorPage() {
         }
       }
     });
-  }, [metrics, soundMuted]);
+  }, [metrics, soundMuted, isOnline]);
 
   // Cleanup
   useEffect(() => {
