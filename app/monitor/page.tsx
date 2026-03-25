@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AlertDanger } from "@/components/AlertDanger";
 // ──────────────────────────────────────────────
 // TYPE cho dữ liệu health (dựa trên code bạn)
 interface HealthMetric {
@@ -62,7 +63,7 @@ export default function HealthMonitorPage() {
       unit: "°C",
       min: 30,
       max: 42,
-      safeMin: 36,
+      safeMin: 18, //36,
       safeMax: 37.5,
     },
     {
@@ -226,7 +227,7 @@ export default function HealthMonitorPage() {
       isPlayingRef.current = false;
     }
   };
-
+  const currentToastIdRef = useRef<string | null>(null);
   // ──────────────────────────────────────────────
   // Logic alert & sound (chạy khi metrics thay đổi)
   useEffect(() => {
@@ -244,64 +245,99 @@ export default function HealthMonitorPage() {
     } else if (!currentlyHasDanger && isPlayingRef.current) {
       stopAlertSound();
       // Đóng hết toast khi hết danger toàn bộ
-      Object.values(toastIdsRef.current).forEach((id) => toast.dismiss(id));
-      toastIdsRef.current = {};
+      if (currentToastIdRef.current) {
+        toast.dismiss(currentToastIdRef.current);
+        currentToastIdRef.current = null;
+      }
+      // Xóa hết beeped ref
+      beepedRef.current = {};
     }
 
-    // Xử lý từng metric
-    metrics.forEach((item) => {
-      const isDanger = item.value < item.safeMin || item.value > item.safeMax;
-      const wasBeeped = beepedRef.current[item.label] ?? false;
+    // Tìm tất cả các metric đang trong trạng thái nguy hiểm
+    const dangerMetrics = metrics.filter(
+      (item) => item.value < item.safeMin || item.value > item.safeMax,
+    );
 
-      if (isDanger) {
+    // Nếu có metric nguy hiểm
+    if (dangerMetrics.length > 0) {
+      // Lấy metric nguy hiểm đầu tiên (hoặc metric có giá trị lệch nhất)
+      const latestDanger = dangerMetrics[0];
+
+      // Đánh dấu đã beeped cho tất cả metric đang nguy hiểm
+      dangerMetrics.forEach((item) => {
         beepedRef.current[item.label] = true;
+      });
 
-        if (!wasBeeped) {
-          const timestamp = new Date().toLocaleString("vi-VN", {
-            timeZone: "Asia/Ho_Chi_Minh",
-          });
-          const message = `${item.label} vượt ngưỡng an toàn!`;
-          const details = `Giá trị: ${item.value}${item.unit} (an toàn: ${item.safeMin} – ${item.safeMax})`;
+      // Tạo thông báo tổng hợp
+      const timestamp = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+      });
 
-          setAlertHistory((prev) => [
-            {
-              id: `${item.label}-${Date.now()}`,
-              timestamp,
-              message,
-              details,
-              label: item.label,
-            },
-            ...prev,
-          ]);
+      // Tạo message tổng hợp
+      let message = "";
+      let details = "";
 
-          const toastId = toast.error(message, {
-            description: details,
-            duration: Infinity,
-            icon: <AlertTriangle className="h-5 w-5" />,
-            action: {
-              label: "Chi tiết",
-              onClick: () => console.log("Chi tiết:", item.label),
-            },
-          }) as string;
-
-          toastIdsRef.current[item.label] = toastId;
-        }
+      if (dangerMetrics.length === 1) {
+        message = `${latestDanger.label} vượt ngưỡng an toàn!`;
+        details = `Giá trị: ${latestDanger.value}${latestDanger.unit} (an toàn: ${latestDanger.safeMin} – ${latestDanger.safeMax})`;
       } else {
-        delete beepedRef.current[item.label];
-        const id = toastIdsRef.current[item.label];
-        if (id) {
-          toast.dismiss(id);
-          delete toastIdsRef.current[item.label];
-        }
+        message = `Có ${dangerMetrics.length} thông số vượt ngưỡng an toàn!`;
+        details = dangerMetrics
+          .map(
+            (item) =>
+              `${item.label}: ${item.value}${item.unit} (chuẩn: ${item.safeMin}-${item.safeMax})`,
+          )
+          .join(" • ");
       }
-    });
+
+      // Cập nhật lịch sử cảnh báo
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setAlertHistory((prev) => [
+        {
+          id: `alert-${Date.now()}`,
+          timestamp,
+          message,
+          details,
+          label: "Tổng hợp",
+        },
+        ...prev,
+      ]);
+
+      // Hiển thị 1 toast duy nhất
+      if (currentToastIdRef.current) {
+        toast.dismiss(currentToastIdRef.current);
+      }
+
+      const toastId = toast.error(message, {
+        description: details,
+        duration: Infinity,
+        icon: <AlertTriangle className="h-5 w-5" />,
+        action: {
+          label: "Tắt",
+          onClick: () => {
+            toast.dismiss(toastId);
+            currentToastIdRef.current = null;
+          },
+        },
+      }) as string;
+
+      currentToastIdRef.current = toastId;
+    } else {
+      // Không còn nguy hiểm, xóa tất cả
+      if (currentToastIdRef.current) {
+        toast.dismiss(currentToastIdRef.current);
+        currentToastIdRef.current = null;
+      }
+    }
   }, [metrics, soundMuted, isOnline]);
 
   // Cleanup
   useEffect(() => {
     return () => stopAlertSound();
   }, []);
-
+  const handleMuteToggle = () => {
+    setSoundMuted((prev) => !prev);
+  };
   // ──────────────────────────────────────────────
   // TODO: Tích hợp Firebase realtime ở đây (sẽ làm ở bước tiếp theo)
   // useEffect(() => {
@@ -322,7 +358,11 @@ export default function HealthMonitorPage() {
               : "Chưa chọn thiết bị"}
           </p>
         </div>
-
+        <AlertDanger
+          isDanger={hasDanger}
+          muted={soundMuted}
+          onMuteToggle={handleMuteToggle}
+        />
         {/* Dropdown chọn thiết bị */}
         <div className="w-full md:w-72">
           <Select

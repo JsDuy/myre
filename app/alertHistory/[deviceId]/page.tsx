@@ -1,15 +1,29 @@
-// app/history/[deviceId]/page.tsx
+// app/alertHistory/[deviceId]/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams } from "next/navigation"; // ← Quan trọng
-import { ref, onValue, query, orderByChild } from "firebase/database";
+import { useState, useEffect, useMemo } from "react";
+import { useParams } from "next/navigation";
+import {
+  ref,
+  onValue,
+  query,
+  orderByChild,
+  limitToLast,
+} from "firebase/database";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/providers/AuthProvider";
 
-import { AlertTriangle, Bell, Calendar, Clock } from "lucide-react";
+import {
+  AlertTriangle,
+  Bell,
+  Calendar,
+  Clock,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   Accordion,
   AccordionContent,
@@ -27,10 +41,14 @@ interface AlertItem {
 }
 
 export default function AlertHistoryPage() {
-  const { deviceId } = useParams<{ deviceId: string }>(); // Lấy deviceId từ URL
-  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const { deviceId } = useParams<{ deviceId: string }>();
+  const [allAlerts, setAllAlerts] = useState<AlertItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const { user } = useAuth();
 
@@ -41,10 +59,11 @@ export default function AlertHistoryPage() {
       return;
     }
 
-    // Chỉ lấy alert_history của device được chọn
+    // Lấy alert_history của device được chọn
     const alertsRef = ref(db, `devices/${deviceId}/alert_history`);
 
-    const q = query(alertsRef, orderByChild("timestamp")); // hoặc "createdAt" nếu bạn có
+    // Sắp xếp theo timestamp giảm dần (mới nhất trước)
+    const q = query(alertsRef, orderByChild("timestamp"));
 
     const unsubscribe = onValue(
       q,
@@ -65,6 +84,8 @@ export default function AlertHistoryPage() {
 
           // Format thời gian
           let displayTime = "Không có thời gian";
+          let createdAt: number | undefined;
+
           if (data.timestamp) {
             const date = new Date(data.timestamp);
             displayTime = date.toLocaleString("vi-VN", {
@@ -75,6 +96,18 @@ export default function AlertHistoryPage() {
               minute: "2-digit",
               second: "2-digit",
             });
+            createdAt = date.getTime();
+          } else if (data.createdAt) {
+            const date = new Date(data.createdAt);
+            displayTime = date.toLocaleString("vi-VN", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            });
+            createdAt = data.createdAt;
           }
 
           // Xây dựng details
@@ -94,15 +127,14 @@ export default function AlertHistoryPage() {
             timestamp: displayTime,
             warnings,
             details,
-            createdAt:
-              typeof data.timestamp === "number" ? data.timestamp : undefined,
+            createdAt,
           });
         });
 
-        // Mới nhất lên đầu
+        // Sắp xếp mới nhất lên đầu
         history.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-        setAlerts(history);
+        setAllAlerts(history);
         setLoading(false);
       },
       (err) => {
@@ -115,14 +147,29 @@ export default function AlertHistoryPage() {
     return () => unsubscribe();
   }, [user, deviceId]);
 
-  const totalAlerts = alerts.length;
+  // Dữ liệu phân trang
+  const paginatedAlerts = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    const end = start + pageSize;
+    return allAlerts.slice(start, end);
+  }, [allAlerts, currentPage, pageSize]);
+
+  const totalPages = Math.ceil(allAlerts.length / pageSize);
+  const totalAlerts = allAlerts.length;
+
+  // Reset về trang đầu khi dữ liệu thay đổi
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCurrentPage(1);
+  }, [deviceId]);
 
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center">
-        Đang tải...
+        <div className="animate-spin h-10 w-10 border-4 border-primary border-t-transparent rounded-full" />
       </div>
     );
+
   if (error)
     return (
       <div className="min-h-screen flex items-center justify-center text-red-600">
@@ -153,73 +200,150 @@ export default function AlertHistoryPage() {
                 <p className="text-3xl font-bold">{totalAlerts}</p>
               </div>
             </div>
-            <Badge
-              variant="outline"
-              className="flex items-center gap-1 px-4 py-2 text-lg"
-            >
-              <Bell className="h-5 w-5" />
-              {totalAlerts}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge
+                variant="outline"
+                className="flex items-center gap-1 px-4 py-2 text-lg"
+              >
+                <Bell className="h-5 w-5" />
+                {totalAlerts}
+              </Badge>
+              {totalPages > 1 && (
+                <span className="text-sm text-muted-foreground ml-2">
+                  Trang {currentPage}/{totalPages}
+                </span>
+              )}
+            </div>
           </CardContent>
         </Card>
 
-        {alerts.length === 0 ? (
+        {totalAlerts === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             Thiết bị này chưa có cảnh báo nào.
           </div>
         ) : (
-          <Accordion type="single" collapsible className="space-y-4">
-            {alerts.map((alert) => (
-              <AccordionItem
-                key={alert.id}
-                value={alert.id}
-                className="border rounded-lg overflow-hidden"
-              >
-                <AccordionTrigger className="bg-red-50 hover:bg-red-100 px-6 py-4">
-                  <div className="flex items-center gap-4 text-left">
-                    <AlertTriangle className="h-6 w-6 text-red-600 flex-shrink-0" />
+          <>
+            <div className="mb-4 flex justify-end">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  Hiển thị {paginatedAlerts.length} / {totalAlerts}
+                </span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 text-sm border rounded-md bg-background"
+                >
+                  <option value={10}>10 / trang</option>
+                  <option value={20}>20 / trang</option>
+                  <option value={50}>50 / trang</option>
+                  <option value={100}>100 / trang</option>
+                </select>
+              </div>
+            </div>
+
+            <Accordion type="single" collapsible className="space-y-4">
+              {paginatedAlerts.map((alert) => (
+                <AccordionItem
+                  key={alert.id}
+                  value={alert.id}
+                  className="border rounded-lg overflow-hidden"
+                >
+                  <AccordionTrigger className="bg-red-50 hover:bg-red-100 px-6 py-4">
+                    <div className="flex items-center gap-4 text-left">
+                      <AlertTriangle className="h-6 w-6 text-red-600 flex-shrink-0" />
+                      <div>
+                        <p className="font-semibold text-red-700">
+                          {alert.timestamp}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {alert.warnings.join(" • ")}
+                        </p>
+                      </div>
+                    </div>
+                  </AccordionTrigger>
+
+                  <AccordionContent className="px-6 pb-6 pt-4 bg-white">
+                    <Alert variant="destructive" className="mb-4">
+                      <AlertTriangle className="h-5 w-5" />
+                      <AlertTitle>Cảnh báo</AlertTitle>
+                      <AlertDescription>
+                        <ul className="list-disc pl-5 space-y-1">
+                          {alert.warnings.map((w, i) => (
+                            <li key={i}>{w}</li>
+                          ))}
+                        </ul>
+                      </AlertDescription>
+                    </Alert>
+
                     <div>
-                      <p className="font-semibold text-red-700">
-                        {alert.timestamp}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {alert.warnings.join(" • ")}
-                      </p>
-                    </div>
-                  </div>
-                </AccordionTrigger>
-
-                <AccordionContent className="px-6 pb-6 pt-4 bg-white">
-                  <Alert variant="destructive" className="mb-4">
-                    <AlertTriangle className="h-5 w-5" />
-                    <AlertTitle>Cảnh báo</AlertTitle>
-                    <AlertDescription>
-                      <ul className="list-disc pl-5 space-y-1">
-                        {alert.warnings.map((w, i) => (
-                          <li key={i}>{w}</li>
+                      <h3 className="font-medium mb-2 flex items-center gap-2">
+                        <Clock className="h-4 w-4" />
+                        Chi tiết lúc đó:
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                        {Object.entries(alert.details).map(([key, value]) => (
+                          <div key={key} className="flex justify-between">
+                            <span className="text-muted-foreground">
+                              {key}:
+                            </span>
+                            <span className="font-medium">{value}</span>
+                          </div>
                         ))}
-                      </ul>
-                    </AlertDescription>
-                  </Alert>
-
-                  <div>
-                    <h3 className="font-medium mb-2 flex items-center gap-2">
-                      <Clock className="h-4 w-4" />
-                      Chi tiết lúc đó:
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                      {Object.entries(alert.details).map(([key, value]) => (
-                        <div key={key} className="flex justify-between">
-                          <span className="text-muted-foreground">{key}:</span>
-                          <span className="font-medium">{value}</span>
-                        </div>
-                      ))}
+                      </div>
                     </div>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+
+            {/* Phân trang */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-6 pt-4 border-t">
+                <div className="text-sm text-muted-foreground">
+                  Trang {currentPage} / {totalPages}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                  >
+                    Đầu
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setCurrentPage((p) => Math.min(totalPages, p + 1))
+                    }
+                    disabled={currentPage === totalPages}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                  >
+                    Cuối
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
