@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Trash2, User } from "lucide-react";
 import { auth } from "@/lib/firebase";
 
-const BASE_URL = "http://192.168.5.108:8000";
+const BASE_URL = "http://192.168.199.253:8000";
 
 interface Member {
   user_uid: string;

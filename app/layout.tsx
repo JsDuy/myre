@@ -9,6 +9,7 @@ import { ClientToaster } from "@/components/ClientToaster";
 import { HydrationFix } from "@/components/HydrationFix";
 import { DeviceProvider } from "@/providers/DeviceProvider";
 import { NavigationProvider } from "@/context/navigation-context";
+import { Providers } from "./providers";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 const geistSans = Geist({
@@ -32,7 +33,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={cn("font-sans", inter.variable)}>
+    <html
+      lang="en"
+      className={cn("font-sans", inter.variable)}
+      suppressHydrationWarning
+    >
       <AuthProvider>
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
@@ -41,19 +46,7 @@ export default function RootLayout({
           <DeviceProvider>
             <NavigationProvider>
               <HydrationFix />
-              <Header /> {children}
-              {/* <Toaster
-          position="bottom-right" // giống Zalo: góc phải dưới
-          richColors // màu đẹp cho error/warning
-          duration={5000} // tự tắt sau 5 giây
-          closeButton // có nút đóng
-          toastOptions={{
-            classNames: {
-              error: "bg-red-600 text-white border-red-700",
-              warning: "bg-orange-500 text-white border-orange-600",
-            },
-          }}
-        /> */}
+              <Header /> <Providers>{children}</Providers>
               <ClientToaster />
               <Footer />
             </NavigationProvider>

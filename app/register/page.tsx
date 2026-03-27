@@ -15,7 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { useToast } from "@/components/ui/use-toast";
+import { toast } from "sonner";
 
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
@@ -23,24 +23,19 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const { toast } = useToast();
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (password !== confirmPassword) {
-      toast({
-        variant: "destructive",
-        title: "Lỗi",
+      toast.error("Lỗi", {
         description: "Mật khẩu xác nhận không khớp.",
       });
       return;
     }
 
     if (password.length < 6) {
-      toast({
-        variant: "destructive",
-        title: "Lỗi",
+      toast.error("Lỗi", {
         description: "Mật khẩu phải ít nhất 6 ký tự.",
       });
       return;
@@ -50,11 +45,11 @@ export default function RegisterPage() {
 
     try {
       await createUserWithEmailAndPassword(auth, email, password);
-      toast({
-        title: "Thành công",
+      toast.success("Thành công", {
         description: "Đăng ký thành công! Đang chuyển hướng...",
       });
       router.push("/login"); // hoặc '/monitor' nếu muốn auto login
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       let message = "Đăng ký thất bại. Vui lòng thử lại.";
       switch (error.code) {
@@ -71,9 +66,7 @@ export default function RegisterPage() {
           message = "Tính năng đăng ký chưa được kích hoạt trong Firebase.";
           break;
       }
-      toast({
-        variant: "destructive",
-        title: "Lỗi đăng ký",
+      toast.error("Lỗi đăng ký", {
         description: message,
       });
     } finally {

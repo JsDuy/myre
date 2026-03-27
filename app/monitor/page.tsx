@@ -455,7 +455,10 @@ export default function HealthMonitorPage() {
         </div>
       )}
 
-      <div className="text-center mt-12 text-sm text-muted-foreground">
+      <div
+        className="text-center mt-12 text-sm text-muted-foreground"
+        suppressHydrationWarning
+      >
         Dữ liệu cập nhật realtime • Cập nhật lần cuối:{" "}
         {new Date().toLocaleTimeString("vi-VN")}
       </div>

@@ -21,8 +21,6 @@ export function Header() {
 
   const navItems = [
     { label: "Trang chủ", href: "/" },
-    { label: "Về chúng tôi", href: "/about" },
-    { label: "Liên hệ", href: "/contact" },
     { label: "Theo dõi sức khỏe", href: "/monitor" },
     {
       label: "Lịch sử cảnh báo",
@@ -35,6 +33,7 @@ export function Header() {
       href: selectedDevice ? `/history/${selectedDevice.id}` : "/history",
     },
     { label: "Danh sách thiết bị", href: "/devices" },
+    { label: "Tài khoản", href: "/account" },
   ];
 
   // Hàm đăng xuất
