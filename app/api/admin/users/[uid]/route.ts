@@ -5,12 +5,12 @@ const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { uid: string } },
+  { params }: { params: Promise<{ uid: string }> }, // ✅ Promise
 ) {
   try {
     const authHeader = request.headers.get("authorization");
     const token = authHeader?.split("Bearer ")[1];
-    const { uid } = params;
+    const { uid } = await params; // ✅ await
 
     console.log("=== Delete User API ===");
     console.log("UID to delete:", uid);
@@ -18,6 +18,11 @@ export async function DELETE(
 
     if (!token) {
       return NextResponse.json({ error: "Missing token" }, { status: 401 });
+    }
+
+    if (!uid) {
+      console.error("UID is missing!");
+      return NextResponse.json({ error: "Missing uid" }, { status: 400 });
     }
 
     const url = `${FASTAPI_URL}/admin/users/${uid}`;
@@ -43,6 +48,7 @@ export async function DELETE(
     }
 
     const data = await response.json();
+    console.log("Delete response:", data);
     return NextResponse.json(data);
   } catch (error) {
     console.error("Error deleting user:", error);

@@ -5,7 +5,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { MoreHorizontal, Trash2, Shield } from "lucide-react";
+import { MoreHorizontal, Trash2, Shield, Settings2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { useAuth } from "@/providers/AuthProvider";
+import { UserDevicesDialog } from "@/components/admin/user-devices-dialog";
 
 type User = {
   uid: string;
@@ -28,6 +29,20 @@ export default function UsersTable() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [showDevicesDialog, setShowDevicesDialog] = useState(false);
+  const [token, setToken] = useState<string>("");
+
+  // Lấy token khi component mount hoặc khi user thay đổi
+  useEffect(() => {
+    const getToken = async () => {
+      if (user) {
+        const idToken = await getIdToken();
+        setToken(idToken);
+      }
+    };
+    getToken();
+  }, [user, getIdToken]);
 
   const fetchUsers = useCallback(async () => {
     if (!user) return;
@@ -162,6 +177,15 @@ export default function UsersTable() {
                 {userItem.is_admin ? "Gỡ quyền Admin" : "Set làm Admin"}
               </DropdownMenuItem>
               <DropdownMenuItem
+                onClick={() => {
+                  setSelectedUser(userItem);
+                  setShowDevicesDialog(true);
+                }}
+              >
+                <Settings2 className="mr-2 h-4 w-4" />
+                Quản lý devices
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 className="text-red-600"
                 onClick={() => handleDelete(userItem)}
                 disabled={isCurrentUser || isDeleting}
@@ -176,5 +200,19 @@ export default function UsersTable() {
     },
   ];
 
-  return <DataTable columns={columns} data={users} loading={loading} />;
+  return (
+    <>
+      <DataTable columns={columns} data={users} loading={loading} />
+
+      {/* User Devices Dialog */}
+      {selectedUser && (
+        <UserDevicesDialog
+          user={selectedUser}
+          open={showDevicesDialog}
+          onOpenChange={setShowDevicesDialog}
+          token={token}
+        />
+      )}
+    </>
+  );
 }

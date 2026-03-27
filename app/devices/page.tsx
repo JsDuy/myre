@@ -16,6 +16,12 @@ import {
   ArrowRight,
   Server,
   Edit,
+  Smartphone,
+  Wifi,
+  WifiOff,
+  MoreVertical,
+  Crown,
+  User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,8 +34,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 import SharedMembersDialog from "@/components/SharedMembersDialog";
+import { useTheme } from "next-themes";
 
 const BASE_URL = "http://192.168.199.253:8000";
 
@@ -106,25 +120,24 @@ export default function DevicesPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [devices, setDevices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // State cho SharedMembersDialog
   const [membersDialogOpen, setMembersDialogOpen] = useState(false);
   const [selectedDeviceForMembers, setSelectedDeviceForMembers] = useState<{
     id: string;
     name: string;
   } | null>(null);
-
-  // ==================== STATE MỚI CHO CHỈNH SỬA THÔNG TIN (Owner) ====================
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [selectedDeviceForEdit, setSelectedDeviceForEdit] = useState<any>(null);
   const [newDeviceName, setNewDeviceName] = useState("");
+  const [onlineStatus, setOnlineStatus] = useState<Record<string, boolean>>({});
 
   const { selectDevice } = useDevice();
   const { setIndex } = useNavigation();
   const user = auth.currentUser;
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
-  // ==================== LẤY DANH SÁCH THIẾT BỊ REALTIME (ĐÃ FIX) ====================
+  // Lấy danh sách thiết bị
   useEffect(() => {
     if (!user) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -133,7 +146,7 @@ export default function DevicesPage() {
     }
 
     setLoading(true);
-    const deviceListRef = userDevicesRef(user.uid); // ← ĐÃ SỬA: chỉ lấy devices của user hiện tại
+    const deviceListRef = userDevicesRef(user.uid);
 
     const unsub = onValue(deviceListRef, (snapshot) => {
       if (!snapshot.exists()) {
@@ -146,6 +159,17 @@ export default function DevicesPage() {
           ...dev,
         }));
         setDevices(list);
+
+        // Kiểm tra online status cho từng device
+        list.forEach((device) => {
+          const healthRef = ref(db, `devices/${device.id}/health_data/latest`);
+          onValue(healthRef, (healthSnapshot) => {
+            setOnlineStatus((prev) => ({
+              ...prev,
+              [device.id]: healthSnapshot.exists(),
+            }));
+          });
+        });
       }
       setLoading(false);
     });
@@ -153,7 +177,6 @@ export default function DevicesPage() {
     return () => unsub();
   }, [user]);
 
-  // ==================== THÊM THIẾT BỊ (giữ nguyên 100%) ====================
   const handleAddDevice = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
@@ -177,7 +200,6 @@ export default function DevicesPage() {
     }
   };
 
-  // ==================== CHIA SẺ THIẾT BỊ (giữ nguyên 100%) ====================
   const handleShareDevice = async (deviceId: string, email: string) => {
     if (!email) return;
     try {
@@ -189,7 +211,6 @@ export default function DevicesPage() {
     }
   };
 
-  // ==================== XÓA THIẾT BỊ (Viewer) (giữ nguyên 100%) ====================
   const handleRemoveDevice = async (deviceId: string, deviceName: string) => {
     if (!confirm(`Ngừng theo dõi thiết bị "${deviceName}"?`)) return;
 
@@ -203,7 +224,6 @@ export default function DevicesPage() {
     }
   };
 
-  // ==================== MỚI: CẬP NHẬT TÊN THIẾT BỊ (Owner) ====================
   const handleUpdateDeviceName = async () => {
     if (!selectedDeviceForEdit || !newDeviceName.trim() || !user) return;
 
@@ -223,7 +243,6 @@ export default function DevicesPage() {
     }
   };
 
-  // Mở dialog quản lý người được chia sẻ (giữ nguyên)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const openMembersDialog = (dev: any) => {
     setSelectedDeviceForMembers({
@@ -233,7 +252,6 @@ export default function DevicesPage() {
     setMembersDialogOpen(true);
   };
 
-  // Mở dialog chỉnh sửa (mới)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const openEditDialog = (dev: any) => {
     setSelectedDeviceForEdit(dev);
@@ -243,168 +261,310 @@ export default function DevicesPage() {
 
   if (!user) {
     return (
-      <div className="p-10 text-center">
-        Vui lòng đăng nhập để xem danh sách thiết bị
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-slate-900 lg:mx-20">
+        <Card className="p-12 text-center shadow-lg dark:bg-slate-800">
+          <Smartphone className="h-16 w-16 mx-auto text-gray-400 mb-4" />
+          <p className="text-lg text-gray-600 dark:text-gray-400">
+            Vui lòng đăng nhập để xem danh sách thiết bị
+          </p>
+          <Button asChild className="mt-6">
+            <a href="/login">Đăng nhập ngay</a>
+          </Button>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">Thiết bị của bạn</h1>
-
-        {/* Dialog thêm thiết bị (giữ nguyên 100%) */}
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-5 w-5" />
-              Thêm thiết bị
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Thêm thiết bị mới</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleAddDevice} className="space-y-4">
-              <div>
-                <Label>Device ID</Label>
-                <Input
-                  name="deviceId"
-                  placeholder="Nhập mã thiết bị"
-                  required
-                />
-              </div>
-              <div>
-                <Label>Tên thiết bị (tùy chọn)</Label>
-                <Input
-                  name="deviceName"
-                  placeholder="Ví dụ: Thiết bị phòng ngủ"
-                />
-              </div>
-              <Button type="submit" className="w-full">
-                Thêm thiết bị
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center py-20">
-          <div className="text-center">
-            <div className="animate-spin h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto" />
-            <p className="mt-4 text-muted-foreground">
-              Đang tải danh sách thiết bị...
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800 lg:mx-20">
+      <div className="container mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+          <div>
+            <Badge
+              variant="outline"
+              className="mb-2 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+            >
+              <Smartphone className="h-3 w-3 mr-1" />
+              Quản lý thiết bị
+            </Badge>
+            <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-slate-100 dark:to-slate-300 bg-clip-text text-transparent">
+              Thiết bị của bạn
+            </h1>
+            <p className="text-gray-500 dark:text-gray-400 mt-1">
+              {devices.length} thiết bị đang được kết nối
             </p>
           </div>
-        </div>
-      ) : devices.length === 0 ? (
-        <div className="text-center py-20 text-muted-foreground">
-          Chưa có thiết bị nào.
-          <br />
-          Nhấn nút `+` để thêm thiết bị đầu tiên.
-        </div>
-      ) : (
-        <div className="grid gap-4">
-          {devices.map((dev) => {
-            const isOwner = dev.role === "owner";
-            const deviceName = dev.nickname || `Thiết bị ${dev.id}`;
 
-            return (
-              <Card key={dev.id} className="overflow-hidden">
-                <CardContent className="p-5 flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <Server className="h-10 w-10 text-blue-600" />
-                    <div>
-                      <p className="font-semibold text-lg">{deviceName}</p>
-                      <p className="text-sm text-muted-foreground">
-                        ID: {dev.id}
-                      </p>
-                    </div>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button className="gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-lg">
+                <Plus className="h-5 w-5" />
+                Thêm thiết bị
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="dark:bg-slate-800 dark:border-slate-700">
+              <DialogHeader>
+                <DialogTitle className="dark:text-slate-100">
+                  Thêm thiết bị mới
+                </DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleAddDevice} className="space-y-4">
+                <div>
+                  <Label className="dark:text-slate-300">Device ID</Label>
+                  <Input
+                    name="deviceId"
+                    placeholder="Nhập mã thiết bị"
+                    required
+                    className="dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100"
+                  />
+                </div>
+                <div>
+                  <Label className="dark:text-slate-300">
+                    Tên thiết bị (tùy chọn)
+                  </Label>
+                  <Input
+                    name="deviceName"
+                    placeholder="Ví dụ: Thiết bị phòng ngủ"
+                    className="dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100"
+                  />
+                </div>
+                <Button type="submit" className="w-full">
+                  Thêm thiết bị
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        {/* Device List */}
+        {loading ? (
+          <div className="flex justify-center py-20">
+            <div className="text-center">
+              <div className="animate-spin h-12 w-12 border-4 border-blue-600 border-t-transparent rounded-full mx-auto" />
+              <p className="mt-4 text-gray-500 dark:text-gray-400">
+                Đang tải danh sách thiết bị...
+              </p>
+            </div>
+          </div>
+        ) : devices.length === 0 ? (
+          <Card className="p-16 text-center shadow-lg dark:bg-slate-800">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gray-100 dark:bg-slate-700 mb-4">
+              <Smartphone className="h-10 w-10 text-gray-400" />
+            </div>
+            <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">
+              Chưa có thiết bị nào
+            </h3>
+            <p className="text-gray-500 dark:text-gray-400 mb-6">
+              Nhấn nút &quot;+&quot; để thêm thiết bị đầu tiên của bạn
+            </p>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Thêm thiết bị ngay
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Thêm thiết bị mới</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleAddDevice} className="space-y-4">
+                  <div>
+                    <Label>Device ID</Label>
+                    <Input
+                      name="deviceId"
+                      placeholder="Nhập mã thiết bị"
+                      required
+                    />
                   </div>
+                  <div>
+                    <Label>Tên thiết bị (tùy chọn)</Label>
+                    <Input
+                      name="deviceName"
+                      placeholder="Ví dụ: Thiết bị phòng ngủ"
+                    />
+                  </div>
+                  <Button type="submit" className="w-full">
+                    Thêm thiết bị
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </Card>
+        ) : (
+          <div className="grid gap-4">
+            {devices.map((dev) => {
+              const isOwner = dev.role === "owner";
+              const deviceName = dev.nickname || `Thiết bị ${dev.id}`;
+              const isOnline = onlineStatus[dev.id];
 
-                  <div className="flex items-center gap-2">
-                    {isOwner && (
-                      <>
-                        {/* Chia sẻ nhanh (giữ nguyên) */}
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button variant="outline" size="icon">
-                              <Share2 className="h-4 w-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Chia sẻ thiết bị</DialogTitle>
-                            </DialogHeader>
-                            <Input
-                              id={`share-input-${dev.id}`}
-                              placeholder="Nhập email người nhận"
-                            />
+              return (
+                <Card
+                  key={dev.id}
+                  className="group overflow-hidden hover:shadow-xl transition-all duration-300 dark:bg-slate-800 dark:border-slate-700"
+                >
+                  <CardContent className="p-5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      {/* Device Info */}
+                      <div className="flex items-center gap-4 flex-1">
+                        <div className="relative">
+                          <div
+                            className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                              isOwner
+                                ? "bg-gradient-to-br from-blue-500 to-blue-600"
+                                : "bg-gradient-to-br from-purple-500 to-purple-600"
+                            }`}
+                          >
+                            <Server className="h-6 w-6 text-white" />
+                          </div>
+                          {isOwner && (
+                            <div className="absolute -top-1 -right-1">
+                              <Crown className="h-4 w-4 text-yellow-500" />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold text-lg text-gray-800 dark:text-slate-200">
+                              {deviceName}
+                            </p>
+                            {isOnline ? (
+                              <Badge
+                                variant="outline"
+                                className="gap-1 text-green-600 border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800 dark:text-green-400"
+                              >
+                                <Wifi className="h-3 w-3" />
+                                Online
+                              </Badge>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className="gap-1 text-gray-500 border-gray-200 bg-gray-50 dark:bg-gray-800 dark:border-gray-700"
+                              >
+                                <WifiOff className="h-3 w-3" />
+                                Offline
+                              </Badge>
+                            )}
+                            {isOwner && (
+                              <Badge
+                                variant="secondary"
+                                className="gap-1 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
+                              >
+                                <Crown className="h-3 w-3" />
+                                Chủ sở hữu
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                            ID: {dev.id}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-1">
+                        {isOwner && (
+                          <>
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-2 dark:border-slate-600"
+                                >
+                                  <Share2 className="h-4 w-4" />
+                                  <span className="hidden sm:inline">
+                                    Chia sẻ
+                                  </span>
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent className="dark:bg-slate-800">
+                                <DialogHeader>
+                                  <DialogTitle>Chia sẻ thiết bị</DialogTitle>
+                                </DialogHeader>
+                                <Input
+                                  id={`share-input-${dev.id}`}
+                                  placeholder="Nhập email người nhận"
+                                  className="dark:bg-slate-700"
+                                />
+                                <Button
+                                  onClick={() => {
+                                    const input = document.getElementById(
+                                      `share-input-${dev.id}`,
+                                    ) as HTMLInputElement;
+                                    if (input)
+                                      handleShareDevice(dev.id, input.value);
+                                  }}
+                                >
+                                  Chia sẻ
+                                </Button>
+                              </DialogContent>
+                            </Dialog>
+
                             <Button
-                              onClick={() => {
-                                const input = document.getElementById(
-                                  `share-input-${dev.id}`,
-                                ) as HTMLInputElement;
-                                if (input)
-                                  handleShareDevice(dev.id, input.value);
-                              }}
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openMembersDialog(dev)}
+                              className="gap-2 dark:border-slate-600"
                             >
-                              Chia sẻ
+                              <Users className="h-4 w-4" />
+                              <span className="hidden sm:inline">
+                                Thành viên
+                              </span>
                             </Button>
-                          </DialogContent>
-                        </Dialog>
 
-                        {/* Quản lý người được chia sẻ (giữ nguyên) */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openEditDialog(dev)}
+                              className="gap-2 dark:border-slate-600"
+                            >
+                              <Edit className="h-4 w-4" />
+                              <span className="hidden sm:inline">Sửa</span>
+                            </Button>
+                          </>
+                        )}
+
+                        {!isOwner && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() =>
+                              handleRemoveDevice(dev.id, deviceName)
+                            }
+                            className="gap-2"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            <span className="hidden sm:inline">
+                              Ngừng theo dõi
+                            </span>
+                          </Button>
+                        )}
+
                         <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => openMembersDialog(dev)}
+                          onClick={() => {
+                            selectDevice(dev.id, deviceName);
+                            setIndex(0);
+                            window.location.href = "/monitor";
+                          }}
+                          className="gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
                         >
-                          <Users className="h-4 w-4" />
+                          <ArrowRight className="h-4 w-4" />
+                          <span className="hidden sm:inline">Theo dõi</span>
                         </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
-                        {/* CHỈNH SỬA TÊN (mới - đầy đủ chức năng bạn yêu cầu) */}
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => openEditDialog(dev)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      </>
-                    )}
-
-                    {!isOwner && (
-                      <Button
-                        variant="destructive"
-                        size="icon"
-                        onClick={() => handleRemoveDevice(dev.id, deviceName)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
-
-                    {/* Vào theo dõi thiết bị (giữ nguyên) */}
-                    <Button
-                      onClick={() => {
-                        selectDevice(dev.id, deviceName);
-                        setIndex(0);
-                        window.location.href = "/monitor";
-                      }}
-                    >
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Dialog quản lý thành viên (giữ nguyên) */}
+      {/* Shared Members Dialog */}
       {selectedDeviceForMembers && (
         <SharedMembersDialog
           open={membersDialogOpen}
@@ -414,19 +574,22 @@ export default function DevicesPage() {
         />
       )}
 
-      {/* ==================== DIALOG CHỈNH SỬA TÊN THIẾT BỊ (mới) ==================== */}
+      {/* Edit Device Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent>
+        <DialogContent className="dark:bg-slate-800 dark:border-slate-700">
           <DialogHeader>
-            <DialogTitle>Chỉnh sửa thông tin thiết bị</DialogTitle>
+            <DialogTitle className="dark:text-slate-100">
+              Chỉnh sửa thông tin thiết bị
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Tên thiết bị mới</Label>
+              <Label className="dark:text-slate-300">Tên thiết bị mới</Label>
               <Input
                 value={newDeviceName}
                 onChange={(e) => setNewDeviceName(e.target.value)}
                 placeholder="Nhập tên thiết bị mới"
+                className="dark:bg-slate-700 dark:border-slate-600 dark:text-slate-100"
               />
             </div>
             <Button onClick={handleUpdateDeviceName} className="w-full">

@@ -5,15 +5,19 @@ const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { uid: string } },
+  { params }: { params: Promise<{ uid: string }> }, // ✅ Promise
 ) {
   try {
     const authHeader = request.headers.get("authorization");
     const token = authHeader?.split("Bearer ")[1];
-    const { uid } = params;
+    const { uid } = await params; // ✅ await
 
     if (!token) {
       return NextResponse.json({ error: "Missing token" }, { status: 401 });
+    }
+
+    if (!uid) {
+      return NextResponse.json({ error: "Missing uid" }, { status: 400 });
     }
 
     const body = await request.json();

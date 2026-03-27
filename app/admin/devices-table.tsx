@@ -15,6 +15,16 @@ import { MoreHorizontal, Trash2, Edit, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/providers/AuthProvider";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
 type Device = {
   id: number;
   device_uid: string;
@@ -27,31 +37,29 @@ type Device = {
 };
 
 export default function DevicesTable() {
-  const { user, getIdToken } = useAuth(); // Thêm useAuth
+  const { user, getIdToken } = useAuth();
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Dialog Edit
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingDevice, setEditingDevice] = useState<Device | null>(null);
+  const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState("");
+
   const fetchDevices = async () => {
     if (!user) return;
-
     try {
       setLoading(true);
       const token = await getIdToken();
-
       const res = await fetch("/api/admin/devices", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!res.ok) throw new Error("Failed to fetch");
-
+      if (!res.ok) throw new Error();
       const data: Device[] = await res.json();
       setDevices(data);
-    } catch (error) {
-      console.error(error);
+    } catch {
       toast.error("Không thể tải danh sách thiết bị");
     } finally {
       setLoading(false);
@@ -62,6 +70,49 @@ export default function DevicesTable() {
     fetchDevices();
   }, [user]);
 
+  // Mở dialog sửa
+  const openEdit = (device: Device) => {
+    setEditingDevice(device);
+    setNewName(device.name);
+    setNewType(device.type || "");
+    setEditDialogOpen(true);
+  };
+
+  // Xử lý sửa thiết bị
+  const handleUpdate = async () => {
+    if (!editingDevice) return;
+
+    try {
+      const token = await getIdToken();
+      const res = await fetch(
+        `/api/admin/devices/${editingDevice.device_uid}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: newName.trim(),
+            type: newType.trim() || undefined,
+          }),
+        },
+      );
+
+      if (res.ok) {
+        toast.success("Cập nhật thiết bị thành công!");
+        setEditDialogOpen(false);
+        fetchDevices(); // Refresh bảng
+      } else {
+        const err = await res.json();
+        toast.error(err.detail || "Cập nhật thất bại");
+      }
+    } catch (error) {
+      toast.error("Lỗi kết nối khi cập nhật");
+    }
+  };
+
+  // Xóa thiết bị
   const handleDelete = async (device: Device) => {
     if (!confirm(`Bạn chắc chắn muốn xóa thiết bị "${device.name}"?`)) return;
 
@@ -76,30 +127,22 @@ export default function DevicesTable() {
         toast.success(`Đã xóa thiết bị ${device.name}`);
         fetchDevices();
       } else {
-        const error = await res.json();
-        toast.error(error.detail || "Xóa thất bại");
+        const err = await res.json();
+        toast.error(err.detail || "Xóa thất bại");
       }
-    } catch (error) {
-      toast.error("Có lỗi xảy ra khi xóa");
+    } catch {
+      toast.error("Lỗi khi xóa thiết bị");
     }
   };
 
   const columns: ColumnDef<Device>[] = [
-    {
-      accessorKey: "device_uid",
-      header: "Device UID",
-    },
-    {
-      accessorKey: "name",
-      header: "Tên thiết bị",
-    },
+    { accessorKey: "device_uid", header: "Device UID" },
+    { accessorKey: "name", header: "Tên thiết bị" },
     {
       accessorKey: "type",
       header: "Loại",
       cell: ({ row }) => (
-        <Badge variant="outline">
-          {row.getValue("type") || "Không xác định"}
-        </Badge>
+        <Badge variant="outline">{row.getValue("type") || "—"}</Badge>
       ),
     },
     {
@@ -116,7 +159,7 @@ export default function DevicesTable() {
     },
     {
       accessorKey: "member_count",
-      header: "Số thành viên",
+      header: "Thành viên",
       cell: ({ row }) => (
         <div className="flex items-center gap-1">
           <Users className="h-4 w-4" />
@@ -128,7 +171,6 @@ export default function DevicesTable() {
       id: "actions",
       cell: ({ row }) => {
         const device = row.original;
-
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -137,13 +179,9 @@ export default function DevicesTable() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() =>
-                  toast.info("Chức năng chỉnh sửa device đang phát triển")
-                }
-              >
+              <DropdownMenuItem onClick={() => openEdit(device)}>
                 <Edit className="mr-2 h-4 w-4" />
-                Chỉnh sửa
+                Sửa thông tin
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-red-600 focus:text-red-600"
@@ -159,5 +197,48 @@ export default function DevicesTable() {
     },
   ];
 
-  return <DataTable columns={columns} data={devices} loading={loading} />;
+  return (
+    <>
+      <DataTable columns={columns} data={devices} loading={loading} />
+
+      {/* Dialog Sửa Thiết Bị */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Sửa thông tin thiết bị</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label>Device UID (không thay đổi)</Label>
+              <Input value={editingDevice?.device_uid || ""} disabled />
+            </div>
+            <div>
+              <Label htmlFor="name">Tên thiết bị</Label>
+              <Input
+                id="name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Nhập tên mới"
+              />
+            </div>
+            <div>
+              <Label htmlFor="type">Loại thiết bị</Label>
+              <Input
+                id="type"
+                value={newType}
+                onChange={(e) => setNewType(e.target.value)}
+                placeholder="Ví dụ: Wearable, IoT Sensor, ..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+              Hủy
+            </Button>
+            <Button onClick={handleUpdate}>Lưu thay đổi</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }

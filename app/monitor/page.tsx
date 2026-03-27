@@ -1,11 +1,31 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
-import { CircularGauge } from "@/components/CircularGauge"; // điều chỉnh path nếu cần
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, X } from "lucide-react";
+import {
+  AlertTriangle,
+  X,
+  Heart,
+  Thermometer,
+  Droplets,
+  Wind,
+  Activity,
+  Volume2,
+  VolumeX,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ref, onValue, off } from "firebase/database";
+import {
+  ref,
+  onValue,
+  off,
+  query,
+  orderByChild,
+  limitToLast,
+  push,
+  set,
+} from "firebase/database";
 import { db } from "@/lib/firebase";
 import { useDevice } from "@/providers/DeviceProvider";
 import { useAuth } from "@/providers/AuthProvider";
@@ -17,8 +37,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AlertDanger } from "@/components/AlertDanger";
-// ──────────────────────────────────────────────
-// TYPE cho dữ liệu health (dựa trên code bạn)
+import { CircularGauge } from "@/components/CircularGauge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+
 interface HealthMetric {
   label: string;
   value: number;
@@ -28,6 +50,8 @@ interface HealthMetric {
   safeMin: number;
   safeMax: number;
   note?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon?: any;
 }
 
 interface Alert {
@@ -35,8 +59,17 @@ interface Alert {
   timestamp: string;
   message: string;
   details: string;
-  label: string;
+  createdAt: number;
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const metricIcons: Record<string, any> = {
+  "Nhịp tim": Heart,
+  "Nồng độ oxy (SpO2)": Wind,
+  "Nhiệt độ môi trường": Thermometer,
+  "Nồng độ khí gas": Activity,
+  "Độ ẩm môi trường": Droplets,
+};
 
 export default function HealthMonitorPage() {
   const { user } = useAuth();
@@ -56,15 +89,7 @@ export default function HealthMonitorPage() {
       max: 180,
       safeMin: 60,
       safeMax: 100,
-    },
-    {
-      label: "Nhiệt độ cơ thể",
-      value: 0,
-      unit: "°C",
-      min: 30,
-      max: 42,
-      safeMin: 18, //36,
-      safeMax: 37.5,
+      icon: Heart,
     },
     {
       label: "Nồng độ oxy (SpO2)",
@@ -74,6 +99,7 @@ export default function HealthMonitorPage() {
       max: 100,
       safeMin: 95,
       safeMax: 100,
+      icon: Wind,
     },
     {
       label: "Nhiệt độ môi trường",
@@ -83,6 +109,7 @@ export default function HealthMonitorPage() {
       max: 50,
       safeMin: 18,
       safeMax: 30,
+      icon: Thermometer,
     },
     {
       label: "Nồng độ khí gas",
@@ -92,6 +119,7 @@ export default function HealthMonitorPage() {
       max: 700,
       safeMin: 350,
       safeMax: 620,
+      icon: Activity,
     },
     {
       label: "Độ ẩm môi trường",
@@ -100,124 +128,233 @@ export default function HealthMonitorPage() {
       min: 0,
       max: 100,
       safeMin: 40,
-      safeMax: 60,
-    },
-    {
-      label: "Huyết áp (Systolic)",
-      value: 0,
-      unit: "mmHg",
-      min: 60,
-      max: 200,
-      safeMin: 90,
-      safeMax: 120,
-      note: "N/A",
+      safeMax: 70,
+      icon: Droplets,
     },
   ]);
 
   const [alertHistory, setAlertHistory] = useState<Alert[]>([]);
+  const [mounted, setMounted] = useState(false);
   const [soundMuted, setSoundMuted] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
 
-  const toastIdsRef = useRef<Record<string, string>>({});
-  const beepedRef = useRef<Record<string, boolean>>({});
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const isPlayingRef = useRef(false);
+  const currentToastIdRef = useRef<string | null>(null);
+  const lastAlertSignatureRef = useRef<string>("");
 
   const hasDanger = useMemo(
     () => metrics.some((m) => m.value < m.safeMin || m.value > m.safeMax),
     [metrics],
   );
+
+  // Format thời gian
+  const formatTime = (timestamp: number) => {
+    return new Date(timestamp).toLocaleTimeString("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  };
+
+  // ====================== Listener Health Data ======================
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   useEffect(() => {
     if (!user || !selectedDevice || deviceLoading) return;
 
     const deviceId = selectedDevice.id;
     const healthRef = ref(db, `devices/${deviceId}/health_data/latest`);
 
-    console.log("Listening to:", healthRef.toString()); // debug
-
-    const unsubscribe = onValue(
-      healthRef,
-      (snapshot) => {
-        const data = snapshot.val();
-        if (!data) {
-          setIsOnline(false);
-          toast.warning("Không có dữ liệu health mới từ thiết bị");
-          return;
-        }
-
-        setMetrics((prev) =>
-          prev.map((item) => {
-            let value = item.value;
-            let note: string | undefined = item.note;
-
-            switch (item.label) {
-              case "Nhịp tim":
-                value = Number(data.heartRate ?? data.hr ?? 0);
-                break;
-              case "Nồng độ oxy (SpO2)":
-                value = Number(data.spo2 ?? data.spo ?? 0);
-                break;
-              case "Nhiệt độ cơ thể":
-                value = Number(data.bodyTemp ?? data.temperature ?? 0); // app gốc có thể phân biệt
-                break;
-              case "Nhiệt độ môi trường":
-                value = Number(data.envTemp ?? data.temperature ?? 0);
-                break;
-              case "Nồng độ khí gas":
-                value = Number(data.gas ?? data.gasLevel ?? 0);
-                break;
-              case "Độ ẩm môi trường":
-                value = Number(data.humidity ?? 0);
-                break;
-              case "Huyết áp (Systolic)":
-                const bp = data.bloodPressure || "--/--";
-                note = bp; // giữ nguyên dạng "90/120"
-                value = Number(bp.split("/")[0]) || 0;
-                break;
-              default:
-                break;
-            }
-
-            return { ...item, value, note };
-          }),
-        );
-
-        setIsOnline(true);
-      },
-      (err) => {
-        console.error("Firebase Realtime error:", err);
+    const unsubscribe = onValue(healthRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) {
         setIsOnline(false);
-        toast.error(
-          "Mất kết nối realtime với thiết bị. Kiểm tra mạng hoặc quyền truy cập.",
-        );
-      },
-    );
+        return;
+      }
+
+      setMetrics((prev) =>
+        prev.map((item) => {
+          let value = item.value;
+          const note = item.note;
+
+          switch (item.label) {
+            case "Nhịp tim":
+              value = Number(data.heartRate ?? data.hr ?? 0);
+              break;
+            case "Nồng độ oxy (SpO2)":
+              value = Number(data.spo2 ?? data.spo ?? 0);
+              break;
+            case "Nhiệt độ môi trường":
+              value = Number(data.envTemp ?? data.temperature ?? 0);
+              break;
+            case "Nồng độ khí gas":
+              value = Number(data.gas ?? data.gasLevel ?? 0);
+              break;
+            case "Độ ẩm môi trường":
+              value = Number(data.humidity ?? 0);
+              break;
+          }
+          return { ...item, value, note };
+        }),
+      );
+
+      setLastUpdate(new Date());
+      setIsOnline(true);
+    });
 
     return () => {
       off(healthRef);
       unsubscribe();
     };
   }, [user, selectedDevice, deviceLoading]);
-  // ──────────────────────────────────────────────
-  // Hàm phát / dừng âm thanh
-  const playAlertSound = () => {
+
+  // ====================== Listener Alert History ======================
+  useEffect(() => {
+    if (!user || !selectedDevice || deviceLoading) return;
+
+    const deviceId = selectedDevice.id;
+    const alertsRef = ref(db, `devices/${deviceId}/alert_history`);
+    const q = query(alertsRef, orderByChild("timestamp"), limitToLast(50));
+
+    const unsubscribe = onValue(q, (snapshot) => {
+      const newAlerts: Alert[] = [];
+      snapshot.forEach((child) => {
+        const data = child.val();
+        if (!data?.timestamp) return;
+
+        const date = new Date(data.timestamp);
+        const displayTime = date.toLocaleString("vi-VN", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+
+        const reasons: string[] = [];
+        if (data.spo2 < 92) reasons.push(`SpO2 thấp: ${data.spo2}%`);
+        if (data.heartRate > 140)
+          reasons.push(`Nhịp tim cao: ${data.heartRate} BPM`);
+        if (data.temperature > 38)
+          reasons.push(`Nhiệt độ cao: ${data.temperature}°C`);
+        if (data.gas > 50) reasons.push(`Khí gas cao: ${data.gas} ppm`);
+        if (data.humidity > 80) reasons.push(`Độ ẩm cao: ${data.humidity}%`);
+
+        newAlerts.push({
+          id: child.key!,
+          timestamp: displayTime,
+          message: reasons.join(" • ") || "Cảnh báo sức khỏe",
+          details: `Nhịp tim: ${data.heartRate} | SpO2: ${data.spo2}`,
+          createdAt: data.timestamp,
+        });
+      });
+
+      newAlerts.sort((a, b) => b.createdAt - a.createdAt);
+      setAlertHistory(newAlerts);
+    });
+
+    return () => {
+      off(alertsRef);
+      unsubscribe();
+    };
+  }, [user, selectedDevice, deviceLoading]);
+
+  // ====================== GHI ALERT VÀO FIREBASE ======================
+  const saveAlertToFirebase = async () => {
+    if (!selectedDevice || !user) return;
+
+    const deviceId = selectedDevice.id;
+    const now = Date.now();
+
+    const signature = metrics.map((m) => `${m.label}-${m.value}`).join("|");
+    if (signature === lastAlertSignatureRef.current) return;
+    lastAlertSignatureRef.current = signature;
+
+    const alertData = {
+      timestamp: now,
+      heartRate: metrics[0].value,
+      spo2: metrics[2].value,
+      temperature: metrics[1].value,
+      gas: metrics[4].value,
+    };
+
+    try {
+      const alertRef = push(ref(db, `devices/${deviceId}/alert_history`));
+      await set(alertRef, alertData);
+      console.log("✅ Đã lưu cảnh báo vào Firebase");
+    } catch (err) {
+      console.error("❌ Lỗi lưu alert vào Firebase:", err);
+    }
+  };
+
+  // Kiểm tra danger và thực hiện hành động
+  useEffect(() => {
+    if (soundMuted || !isOnline) {
+      // eslint-disable-next-line react-hooks/immutability
+      stopAlertSound();
+      return;
+    }
+
+    if (hasDanger) {
+      // eslint-disable-next-line react-hooks/immutability
+      playAlertSound();
+      saveAlertToFirebase();
+
+      const description = metrics
+        .filter((m) => m.value < m.safeMin || m.value > m.safeMax)
+        .map((m) => `${m.label}: ${m.value}${m.unit}`)
+        .join(" • ");
+
+      if (currentToastIdRef.current) toast.dismiss(currentToastIdRef.current);
+
+      const toastId = toast.error("⚠️ Cảnh báo sức khỏe!", {
+        description,
+        duration: Infinity,
+        icon: <AlertTriangle className="h-5 w-5" />,
+        action: { label: "Tắt", onClick: () => toast.dismiss(toastId) },
+      }) as string;
+
+      currentToastIdRef.current = toastId;
+    } else {
+      stopAlertSound();
+      if (currentToastIdRef.current) {
+        toast.dismiss(currentToastIdRef.current);
+        currentToastIdRef.current = null;
+      }
+      lastAlertSignatureRef.current = "";
+    }
+  }, [hasDanger, metrics, soundMuted, isOnline]);
+
+  const playAlertSound = useCallback(() => {
     if (isPlayingRef.current || soundMuted) return;
 
+    // Chỉ phát âm thanh khi có tương tác người dùng trước đó
+    // hoặc đợi user click vào trang
     try {
       const audio = new Audio("/sounds/0311(1).MP3");
       audio.volume = 0.7;
       audio.loop = true;
-      audioRef.current = audio;
-      audio
-        .play()
-        .then(() => {
-          isPlayingRef.current = true;
-        })
-        .catch((err) => console.warn("Autoplay blocked:", err));
+
+      // Thêm event listener để xử lý lỗi play
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            audioRef.current = audio;
+            isPlayingRef.current = true;
+          })
+          .catch((err) => {
+            console.warn("Audio play was prevented:", err);
+            // Không set audioRef vì không phát được
+          });
+      }
     } catch (err) {
       console.error("Lỗi phát âm thanh:", err);
     }
-  };
+  }, [soundMuted]);
 
   const stopAlertSound = () => {
     if (audioRef.current) {
@@ -227,240 +364,260 @@ export default function HealthMonitorPage() {
       isPlayingRef.current = false;
     }
   };
-  const currentToastIdRef = useRef<string | null>(null);
-  // ──────────────────────────────────────────────
-  // Logic alert & sound (chạy khi metrics thay đổi)
+
+  const handleMuteToggle = () => setSoundMuted((prev) => !prev);
+
   useEffect(() => {
-    if (soundMuted || !isOnline) {
+    return () => {
       stopAlertSound();
-      return;
-    }
-
-    const currentlyHasDanger = metrics.some(
-      (m) => m.value < m.safeMin || m.value > m.safeMax,
-    );
-
-    if (currentlyHasDanger && !isPlayingRef.current) {
-      playAlertSound();
-    } else if (!currentlyHasDanger && isPlayingRef.current) {
-      stopAlertSound();
-      // Đóng hết toast khi hết danger toàn bộ
-      if (currentToastIdRef.current) {
-        toast.dismiss(currentToastIdRef.current);
-        currentToastIdRef.current = null;
-      }
-      // Xóa hết beeped ref
-      beepedRef.current = {};
-    }
-
-    // Tìm tất cả các metric đang trong trạng thái nguy hiểm
-    const dangerMetrics = metrics.filter(
-      (item) => item.value < item.safeMin || item.value > item.safeMax,
-    );
-
-    // Nếu có metric nguy hiểm
-    if (dangerMetrics.length > 0) {
-      // Lấy metric nguy hiểm đầu tiên (hoặc metric có giá trị lệch nhất)
-      const latestDanger = dangerMetrics[0];
-
-      // Đánh dấu đã beeped cho tất cả metric đang nguy hiểm
-      dangerMetrics.forEach((item) => {
-        beepedRef.current[item.label] = true;
-      });
-
-      // Tạo thông báo tổng hợp
-      const timestamp = new Date().toLocaleString("vi-VN", {
-        timeZone: "Asia/Ho_Chi_Minh",
-      });
-
-      // Tạo message tổng hợp
-      let message = "";
-      let details = "";
-
-      if (dangerMetrics.length === 1) {
-        message = `${latestDanger.label} vượt ngưỡng an toàn!`;
-        details = `Giá trị: ${latestDanger.value}${latestDanger.unit} (an toàn: ${latestDanger.safeMin} – ${latestDanger.safeMax})`;
-      } else {
-        message = `Có ${dangerMetrics.length} thông số vượt ngưỡng an toàn!`;
-        details = dangerMetrics
-          .map(
-            (item) =>
-              `${item.label}: ${item.value}${item.unit} (chuẩn: ${item.safeMin}-${item.safeMax})`,
-          )
-          .join(" • ");
-      }
-
-      // Cập nhật lịch sử cảnh báo
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAlertHistory((prev) => [
-        {
-          id: `alert-${Date.now()}`,
-          timestamp,
-          message,
-          details,
-          label: "Tổng hợp",
-        },
-        ...prev,
-      ]);
-
-      // Hiển thị 1 toast duy nhất
-      if (currentToastIdRef.current) {
-        toast.dismiss(currentToastIdRef.current);
-      }
-
-      const toastId = toast.error(message, {
-        description: details,
-        duration: Infinity,
-        icon: <AlertTriangle className="h-5 w-5" />,
-        action: {
-          label: "Tắt",
-          onClick: () => {
-            toast.dismiss(toastId);
-            currentToastIdRef.current = null;
-          },
-        },
-      }) as string;
-
-      currentToastIdRef.current = toastId;
-    } else {
-      // Không còn nguy hiểm, xóa tất cả
-      if (currentToastIdRef.current) {
-        toast.dismiss(currentToastIdRef.current);
-        currentToastIdRef.current = null;
-      }
-    }
-  }, [metrics, soundMuted, isOnline]);
-
-  // Cleanup
-  useEffect(() => {
-    return () => stopAlertSound();
+      if (currentToastIdRef.current) toast.dismiss(currentToastIdRef.current);
+    };
   }, []);
-  const handleMuteToggle = () => {
-    setSoundMuted((prev) => !prev);
-  };
-  // ──────────────────────────────────────────────
-  // TODO: Tích hợp Firebase realtime ở đây (sẽ làm ở bước tiếp theo)
-  // useEffect(() => {
-  //   // listener Firebase
-  // }, [selectedDeviceId]);
 
   return (
-    <div className="container mx-auto px-4 py-12">
-      {/* Phần header với dropdown */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
-        <div>
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-            Theo dõi sức khỏe thời gian thực
-          </h1>
-          <p className="text-xl text-muted-foreground mt-2">
-            {selectedDevice
-              ? `Thiết bị: ${selectedDevice.name} (${selectedDevice.id})`
-              : "Chưa chọn thiết bị"}
-          </p>
-        </div>
-        <AlertDanger
-          isDanger={hasDanger}
-          muted={soundMuted}
-          onMuteToggle={handleMuteToggle}
-        />
-        {/* Dropdown chọn thiết bị */}
-        <div className="w-full md:w-72">
-          <Select
-            value={selectedDevice?.id || ""}
-            onValueChange={(deviceId) => {
-              const dev = devices.find((d) => d.id === deviceId);
-              if (dev) setSelectedDevice(dev);
-            }}
-            disabled={devices.length === 0 || deviceLoading}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Chọn thiết bị" />
-            </SelectTrigger>
-            <SelectContent>
-              {devices.map((dev) => (
-                <SelectItem key={dev.id} value={dev.id}>
-                  {dev.name} (
-                  {dev.role === "owner" ? "Chủ sở hữu" : "Được chia sẻ"})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {/* Grid gauge - giữ nguyên */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 md:gap-12">
-        {metrics.map((item, idx) => (
-          <CircularGauge
-            key={idx}
-            value={item.value}
-            min={item.min}
-            max={item.max}
-            unit={item.unit}
-            safeMin={item.safeMin}
-            safeMax={item.safeMax}
-            label={item.label}
-            size="lg"
-            note={item.note}
-          />
-        ))}
-      </div>
-
-      {alertHistory.length > 0 && (
-        <div className="mb-8 bg-red-50 border border-red-200 rounded-lg p-6 shadow-sm mt-12">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-red-700 flex items-center gap-2">
-              <AlertTriangle className="h-6 w-6" />
-              Các cảnh báo gần đây ({alertHistory.length})
-            </h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setAlertHistory([])}
-              className="text-red-600 hover:bg-red-100"
-            >
-              Tắt tất cả
-            </Button>
-          </div>
-
-          <div className="space-y-4 max-h-96 overflow-y-auto">
-            {alertHistory.map((alert) => (
-              <div
-                key={alert.id}
-                className="p-4 bg-white rounded border border-red-100 flex justify-between items-start gap-4"
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-gray-900 dark:via-black dark:to-gray-800 lg:mx-20">
+      <div className="container mx-auto px-4 py-8">
+        {/* Header Section */}
+        <div className="mb-8">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+            <div className="space-y-2">
+              <Badge
+                variant="outline"
+                className="bg-blue-50 text-blue-700 border-blue-200"
               >
-                <div>
-                  <p className="font-medium text-red-700">{alert.message}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {alert.details}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {alert.timestamp}
-                  </p>
+                <Activity className="h-3 w-3 mr-1" />
+                Theo dõi sức khỏe realtime
+              </Badge>
+              <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent dark:from-gray-100 dark:to-gray-300">
+                Giám sát sức khỏe
+              </h1>
+              <p className="text-muted-foreground">
+                {selectedDevice
+                  ? `Thiết bị: ${selectedDevice.id}`
+                  : "Vui lòng chọn thiết bị để bắt đầu theo dõi"}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-4">
+              {/* Online Status */}
+              <div className="flex items-center gap-2 px-3 py-2 bg-white  rounded-full shadow-sm border">
+                {isOnline ? (
+                  <>
+                    <Wifi className="h-4 w-4 text-green-500" />
+                    <span className="text-sm text-gray-600">Online</span>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="h-4 w-4 text-red-500" />
+                    <span className="text-sm text-gray-600">Offline</span>
+                  </>
+                )}
+              </div>
+
+              <div className="text-sm text-muted-foreground dark:text-black/80 bg-white px-3 py-2 rounded-full shadow-sm">
+                CN: {mounted ? formatTime(lastUpdate.getTime()) : "---"}
+              </div>
+
+              {/* Device Selector */}
+              <div className="w-64">
+                <Select
+                  value={selectedDevice?.id || ""}
+                  onValueChange={(id) => {
+                    const dev = devices.find((d) => d.id === id);
+                    if (dev) setSelectedDevice(dev);
+                  }}
+                >
+                  <SelectTrigger className="bg-white border-gray-200 shadow-sm">
+                    <SelectValue placeholder="Chọn thiết bị" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {devices.map((dev) => (
+                      <SelectItem key={dev.id} value={dev.id}>
+                        <div className="flex items-center gap-2">
+                          <Activity className="h-4 w-4 text-blue-500" />
+                          <span>{dev.name}</span>
+                          <Badge variant="outline" className="ml-2 text-xs">
+                            {dev.role === "owner"
+                              ? "Chủ sở hữu"
+                              : "Được chia sẻ"}
+                          </Badge>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Mute Button */}
+              <Button
+                variant={soundMuted ? "outline" : "default"}
+                size="icon"
+                onClick={handleMuteToggle}
+                className={`rounded-full ${!soundMuted && hasDanger ? "animate-pulse bg-red-500 hover:bg-red-600 mx-6" : "mx-6"}`}
+              >
+                {soundMuted ? (
+                  <VolumeX className="h-5 w-5" />
+                ) : (
+                  <Volume2 className="h-5 w-5" />
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Metrics Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-12">
+          {metrics.map((item, idx) => {
+            const Icon = item.icon;
+            const isDanger =
+              item.value < item.safeMin || item.value > item.safeMax;
+            const isNormal = !isDanger && item.value > 0;
+
+            return (
+              <Card
+                key={idx}
+                className={`relative overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${
+                  isDanger
+                    ? "border-red-200 bg-gradient-to-br from-red-50 to-white"
+                    : "border-gray-100"
+                }`}
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`p-2 rounded-lg ${isDanger ? "bg-red-100" : "bg-blue-50"}`}
+                      >
+                        <Icon
+                          className={`h-5 w-5 ${isDanger ? "text-red-500" : "text-blue-500 dark:text-white-800"}`}
+                        />
+                      </div>
+                      <CardTitle className="text-sm font-medium text-gray-600">
+                        {item.label}
+                      </CardTitle>
+                    </div>
+                    {item.note && item.note !== "N/A" && (
+                      <Badge variant="outline" className="text-xs">
+                        {item.note}
+                      </Badge>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center">
+                    <div
+                      className={`text-3xl font-bold ${isDanger ? "text-red-600" : isNormal ? "text-gray-800 dark:text-white" : "text-gray-400 dark:text-gray-600"}`}
+                    >
+                      {item.value > 0 ? item.value.toFixed(1) : "---"}
+                      <span className="text-lg font-normal text-gray-500 ml-1">
+                        {item.unit}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex justify-center gap-2 text-xs">
+                      <span className="text-green-600">↓ {item.safeMin}</span>
+                      <span className="text-gray-400">|</span>
+                      <span className="text-red-600">{item.safeMax} ↑</span>
+                    </div>
+                    {isDanger && (
+                      <Badge variant="destructive" className="mt-3 text-xs">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        Chỉ số bất thường
+                      </Badge>
+                    )}
+                  </div>
+                </CardContent>
+                <div
+                  className={`absolute bottom-0 left-0 h-1 transition-all duration-500 ${
+                    isDanger
+                      ? "bg-red-500"
+                      : isNormal
+                        ? "bg-green-500"
+                        : "bg-gray-300"
+                  }`}
+                  style={{
+                    width: `${((item.value - item.min) / (item.max - item.min)) * 100}%`,
+                  }}
+                />
+              </Card>
+            );
+          })}
+        </div>
+
+        {/* Alert History */}
+        {alertHistory.length > 0 && (
+          <Card className="border-red-200 shadow-lg">
+            <CardHeader className="bg-gradient-to-r from-red-50 to-orange-50 rounded-t-lg">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-6 w-6 text-red-500" />
+                  <CardTitle className="text-red-700">
+                    Lịch sử cảnh báo
+                  </CardTitle>
+                  <Badge variant="destructive" className="ml-2">
+                    {alertHistory.length} cảnh báo
+                  </Badge>
                 </div>
                 <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() =>
-                    setAlertHistory((prev) =>
-                      prev.filter((a) => a.id !== alert.id),
-                    )
-                  }
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAlertHistory([])}
+                  className="border-red-200 hover:bg-red-50 hover:text-red-600 transition-all dark:border-red-400 dark:hover:bg-red-500 dark:hover:text-white dark:text-black my-5"
                 >
-                  <X className="h-4 w-4" />
+                  Xóa tất cả
                 </Button>
               </div>
-            ))}
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y max-h-96 overflow-y-auto">
+                {alertHistory.slice(0, 10).map((alert) => (
+                  <div
+                    key={alert.id}
+                    className="p-4 hover:bg-red-50/50 transition-colors flex justify-between items-start group"
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <AlertTriangle className="h-4 w-4 text-red-500" />
+                        <p className="font-medium text-red-700">
+                          {alert.message}
+                        </p>
+                      </div>
+                      <p className="text-sm text-gray-600">{alert.details}</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {alert.timestamp}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() =>
+                        setAlertHistory((prev) =>
+                          prev.filter((a) => a.id !== alert.id),
+                        )
+                      }
+                    >
+                      <X className="h-4 w-4 text-gray-400 hover:text-red-500" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Status Footer */}
+        <div className="text-center mt-12">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-sm">
+            <div
+              className={`w-2 h-2 rounded-full ${isOnline ? "bg-green-500 animate-pulse" : "bg-red-500"}`}
+            />
+            <span className="text-sm text-muted-foreground">
+              {isOnline
+                ? "Đang kết nối đến thiết bị"
+                : "Mất kết nối, đang thử lại..."}
+            </span>
           </div>
         </div>
-      )}
-
-      <div
-        className="text-center mt-12 text-sm text-muted-foreground"
-        suppressHydrationWarning
-      >
-        Dữ liệu cập nhật realtime • Cập nhật lần cuối:{" "}
-        {new Date().toLocaleTimeString("vi-VN")}
       </div>
     </div>
   );
