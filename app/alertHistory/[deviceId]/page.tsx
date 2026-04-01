@@ -3,13 +3,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import {
-  ref,
-  onValue,
-  query,
-  orderByChild,
-  limitToLast,
-} from "firebase/database";
+import { ref, onValue, query, orderByChild } from "firebase/database";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/providers/AuthProvider";
 import { useDevice } from "@/providers/DeviceProvider";
@@ -26,10 +20,8 @@ import {
   Wind,
   Droplets,
   Activity,
-  Gauge,
   ArrowLeft,
   TrendingUp,
-  TrendingDown,
   Info,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -42,8 +34,6 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface AlertItem {
   id: string;
@@ -258,7 +248,7 @@ export default function AlertHistoryPage() {
                   Lịch sử cảnh báo
                 </h1>
                 <p className="text-sm text-gray-500 mt-0.5">
-                  {selectedDevice?.name || `Thiết bị ${deviceId}`}
+                  {selectedDevice?.id || `Thiết bị ${deviceId}`}
                 </p>
               </div>
             </div>

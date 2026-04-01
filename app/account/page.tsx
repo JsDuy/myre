@@ -230,29 +230,8 @@ export default function AccountPage() {
                       <Label htmlFor="email">Email</Label>
                       <Input id="email" value={user?.email || ""} disabled />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="uid">UID</Label>
-                      <Input
-                        id="uid"
-                        value={user?.uid || ""}
-                        disabled
-                        className="font-mono text-sm"
-                      />
-                    </div>
                   </div>
                 </div>
-                <Button
-                  variant="outline"
-                  className="w-full justify-start gap-3"
-                  onClick={handleCopyToken}
-                >
-                  {copied ? (
-                    <Check className="w-4 h-4 text-green-600" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                  {copied ? "Đã copy Token" : "Copy Firebase Token"}
-                </Button>
                 <Button
                   onClick={handleSaveProfile}
                   disabled={saving}

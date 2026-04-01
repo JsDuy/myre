@@ -45,7 +45,7 @@ import {
 import SharedMembersDialog from "@/components/SharedMembersDialog";
 import { useTheme } from "next-themes";
 
-const BASE_URL = "http://192.168.199.253:8000";
+const BASE_URL = "http://192.168.5.108:8000";
 
 const DeviceApi = {
   async registerDevice(

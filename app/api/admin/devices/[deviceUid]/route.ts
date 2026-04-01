@@ -1,7 +1,7 @@
 // app/api/admin/devices/[deviceUid]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://192.168.191.1:8000";
+const FASTAPI_URL = process.env.FASTAPI_URL || "http://192.168.5.108:8000";
 
 console.log("✅ Admin Device Dynamic Route loaded");
 

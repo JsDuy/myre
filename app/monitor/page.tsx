@@ -36,8 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AlertDanger } from "@/components/AlertDanger";
-import { CircularGauge } from "@/components/CircularGauge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -108,7 +106,7 @@ export default function HealthMonitorPage() {
       min: 0,
       max: 50,
       safeMin: 18,
-      safeMax: 30,
+      safeMax: 35,
       icon: Thermometer,
     },
     {
@@ -117,7 +115,7 @@ export default function HealthMonitorPage() {
       unit: "ppm",
       min: 300,
       max: 700,
-      safeMin: 350,
+      safeMin: 320,
       safeMax: 620,
       icon: Activity,
     },
@@ -235,13 +233,20 @@ export default function HealthMonitorPage() {
         });
 
         const reasons: string[] = [];
-        if (data.spo2 < 92) reasons.push(`SpO2 thấp: ${data.spo2}%`);
-        if (data.heartRate > 140)
+        if (data.spo2 < 95) reasons.push(`SpO2 thấp: ${data.spo2}%`);
+        if (data.spo2 > 100) reasons.push(`SpO2 cao: ${data.spo2}%`);
+        if (data.heartRate > 100)
           reasons.push(`Nhịp tim cao: ${data.heartRate} BPM`);
-        if (data.temperature > 38)
+        if (data.heartRate < 60)
+          reasons.push(`Nhịp tim thấp: ${data.heartRate} BPM`);
+        if (data.temperature > 35)
           reasons.push(`Nhiệt độ cao: ${data.temperature}°C`);
-        if (data.gas > 50) reasons.push(`Khí gas cao: ${data.gas} ppm`);
-        if (data.humidity > 80) reasons.push(`Độ ẩm cao: ${data.humidity}%`);
+        if (data.temperature < 18)
+          reasons.push(`Nhiệt độ thấp: ${data.temperature}°C`);
+        if (data.gas > 620) reasons.push(`Khí gas cao: ${data.gas} ppm`);
+        if (data.gas > 330) reasons.push(`Khí gas thấp: ${data.gas} ppm`);
+        if (data.humidity > 70) reasons.push(`Độ ẩm cao: ${data.humidity}%`);
+        if (data.humidity < 40) reasons.push(`Độ ẩm thấp: ${data.humidity}%`);
 
         newAlerts.push({
           id: child.key!,
@@ -276,9 +281,10 @@ export default function HealthMonitorPage() {
     const alertData = {
       timestamp: now,
       heartRate: metrics[0].value,
-      spo2: metrics[2].value,
-      temperature: metrics[1].value,
-      gas: metrics[4].value,
+      spo2: metrics[1].value,
+      temperature: metrics[2].value,
+      gas: metrics[3].value,
+      humidity: metrics[4].value,
     };
 
     try {
@@ -329,6 +335,10 @@ export default function HealthMonitorPage() {
   }, [hasDanger, metrics, soundMuted, isOnline]);
 
   const playAlertSound = useCallback(() => {
+    if (soundMuted) {
+      console.log("🔇 Âm thanh đã bị tắt");
+      return;
+    }
     if (isPlayingRef.current || soundMuted) return;
 
     // Chỉ phát âm thanh khi có tương tác người dùng trước đó
@@ -435,7 +445,7 @@ export default function HealthMonitorPage() {
                       <SelectItem key={dev.id} value={dev.id}>
                         <div className="flex items-center gap-2">
                           <Activity className="h-4 w-4 text-blue-500" />
-                          <span>{dev.name}</span>
+                          <span>{dev.id}</span>
                           <Badge variant="outline" className="ml-2 text-xs">
                             {dev.role === "owner"
                               ? "Chủ sở hữu"

@@ -3,12 +3,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
-import {
-  format,
-  subDays,
-  differenceInMinutes,
-  isWithinInterval,
-} from "date-fns";
+import { format, subDays } from "date-fns";
 import {
   Download,
   FileSpreadsheet,
@@ -18,7 +13,6 @@ import {
   Thermometer,
   Wind,
   Droplets,
-  Gauge,
   CalendarIcon,
   Loader2,
   RefreshCw,
@@ -44,6 +38,7 @@ import { useDevice } from "@/providers/DeviceProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTheme } from "next-themes";
+import { toast } from "sonner";
 
 interface HealthData {
   time: string;
@@ -63,13 +58,14 @@ export default function HealthHistoryPage() {
   const { user, getIdToken } = useAuth();
   const { devices } = useDevice();
 
-  const [displayData, setDisplayData] = useState<HealthData[]>([]);
+  const [allData, setAllData] = useState<HealthData[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [dateRange, setDateRange] = useState<{
+  // Date range chỉ dùng cho export
+  const [exportDateRange, setExportDateRange] = useState<{
     from: Date;
     to: Date;
   }>({
@@ -79,7 +75,6 @@ export default function HealthHistoryPage() {
 
   const currentDevice = devices.find((d) => d.id === deviceId);
 
-  // Chart colors based on theme
   const chartColors = {
     grid: isDark ? "#374151" : "#e5e7eb",
     text: isDark ? "#9ca3af" : "#6b7280",
@@ -87,6 +82,7 @@ export default function HealthHistoryPage() {
     tooltipBorder: isDark ? "#374151" : "#e5e7eb",
   };
 
+  // Fetch dữ liệu - lấy 100 bản ghi mới nhất
   const fetchHistory = useCallback(async () => {
     if (!deviceId || !user) {
       setLoading(false);
@@ -96,7 +92,8 @@ export default function HealthHistoryPage() {
     setLoading(true);
     try {
       const token = await getIdToken();
-      const res = await fetch(`/api/history?deviceId=${deviceId}&limit=200`, {
+      // Lấy 100 bản ghi mới nhất
+      const res = await fetch(`/api/history?deviceId=${deviceId}&limit=100`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -106,12 +103,14 @@ export default function HealthHistoryPage() {
       }
 
       const result: HealthData[] = await res.json();
+      // Sắp xếp theo thời gian giảm dần (mới nhất trước)
       const sorted = result.sort(
         (a, b) => new Date(b.time).getTime() - new Date(a.time).getTime(),
       );
-      setDisplayData(sorted);
+      setAllData(sorted);
     } catch (err) {
       console.error(err);
+      toast.error("Không thể tải dữ liệu lịch sử");
     } finally {
       setLoading(false);
     }
@@ -127,36 +126,26 @@ export default function HealthHistoryPage() {
     fetchHistory();
   }, [fetchHistory]);
 
+  // Dữ liệu cho biểu đồ - 100 bản ghi mới nhất (sắp xếp tăng dần)
   const chartData = useMemo(() => {
-    const filtered = displayData.filter((item) => {
-      const itemDate = new Date(item.time);
-      return isWithinInterval(itemDate, {
-        start: dateRange.from,
-        end: dateRange.to,
-      });
-    });
-
-    return filtered
+    // Sắp xếp tăng dần để vẽ biểu đồ
+    return [...allData]
       .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
       .map((item) => ({
         ...item,
         time: format(new Date(item.time), "dd/MM HH:mm"),
         fullTime: format(new Date(item.time), "dd/MM/yyyy HH:mm:ss"),
       }));
-  }, [displayData, dateRange]);
+  }, [allData]);
 
-  const filteredData = useMemo(() => {
-    return displayData.filter((item) => {
-      const itemDate = new Date(item.time);
-      return isWithinInterval(itemDate, {
-        start: dateRange.from,
-        end: dateRange.to,
-      });
-    });
-  }, [displayData, dateRange]);
+  // Dữ liệu cho bảng - 100 bản ghi mới nhất
+  const tableData = useMemo(() => {
+    return allData;
+  }, [allData]);
 
+  // Thống kê dựa trên 100 bản ghi mới nhất
   const stats = useMemo(() => {
-    if (filteredData.length === 0) return null;
+    if (allData.length === 0) return null;
 
     const avg = (values: number[]) =>
       values.reduce((a, b) => a + b, 0) / values.length;
@@ -165,48 +154,49 @@ export default function HealthHistoryPage() {
 
     return {
       spo2: {
-        avg: avg(filteredData.map((d) => d.spo2)),
-        max: max(filteredData.map((d) => d.spo2)),
-        min: min(filteredData.map((d) => d.spo2)),
+        avg: avg(allData.map((d) => d.spo2)),
+        max: max(allData.map((d) => d.spo2)),
+        min: min(allData.map((d) => d.spo2)),
       },
       heartRate: {
-        avg: avg(filteredData.map((d) => d.heartRate)),
-        max: max(filteredData.map((d) => d.heartRate)),
-        min: min(filteredData.map((d) => d.heartRate)),
+        avg: avg(allData.map((d) => d.heartRate)),
+        max: max(allData.map((d) => d.heartRate)),
+        min: min(allData.map((d) => d.heartRate)),
       },
       temperature: {
-        avg: avg(filteredData.map((d) => d.temperature)),
-        max: max(filteredData.map((d) => d.temperature)),
-        min: min(filteredData.map((d) => d.temperature)),
+        avg: avg(allData.map((d) => d.temperature)),
+        max: max(allData.map((d) => d.temperature)),
+        min: min(allData.map((d) => d.temperature)),
       },
       gas: {
-        avg: avg(filteredData.map((d) => d.gas)),
-        max: max(filteredData.map((d) => d.gas)),
-        min: min(filteredData.map((d) => d.gas)),
+        avg: avg(allData.map((d) => d.gas)),
+        max: max(allData.map((d) => d.gas)),
+        min: min(allData.map((d) => d.gas)),
       },
       humidity: {
-        avg: avg(filteredData.map((d) => d.humidity)),
-        max: max(filteredData.map((d) => d.humidity)),
-        min: min(filteredData.map((d) => d.humidity)),
+        avg: avg(allData.map((d) => d.humidity)),
+        max: max(allData.map((d) => d.humidity)),
+        min: min(allData.map((d) => d.humidity)),
       },
     };
-  }, [filteredData]);
+  }, [allData]);
 
   const getAlertStatus = (item: HealthData) => {
     const alerts = [];
     if (item.spo2 < 95) alerts.push("SpO₂ thấp");
     if (item.spo2 > 100) alerts.push("SpO₂ cao");
     if (item.heartRate > 100) alerts.push("Nhịp tim cao");
-    if (item.heartRate < 40) alerts.push("Nhịp tim thấp");
-    if (item.temperature > 30) alerts.push("Nhiệt độ cao");
+    if (item.heartRate < 60) alerts.push("Nhịp tim thấp");
+    if (item.temperature > 35) alerts.push("Nhiệt độ cao");
     if (item.temperature < 18) alerts.push("Nhiệt độ thấp");
     if (item.gas > 620) alerts.push("Khí gas cao");
-    if (item.gas < 350) alerts.push("Khí gas thấp");
+    if (item.gas < 320) alerts.push("Khí gas thấp");
     if (item.humidity > 70) alerts.push("Độ ẩm cao");
     if (item.humidity < 40) alerts.push("Độ ẩm thấp");
     return alerts;
   };
 
+  // Xuất dữ liệu theo khoảng thời gian được chọn
   const exportData = async (type: "excel" | "csv") => {
     if (!deviceId || !user) return;
 
@@ -215,8 +205,9 @@ export default function HealthHistoryPage() {
 
     try {
       const token = await getIdToken();
-      const startDate = new Date(dateRange.from);
-      const endDate = new Date(dateRange.to);
+      const startDate = new Date(exportDateRange.from);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(exportDateRange.to);
       endDate.setHours(23, 59, 59, 999);
 
       setExportProgress(20);
@@ -234,7 +225,7 @@ export default function HealthHistoryPage() {
       setExportProgress(80);
 
       if (exportData.length === 0) {
-        alert("Không có dữ liệu trong khoảng thời gian này");
+        toast.error("Không có dữ liệu trong khoảng thời gian này");
         setExporting(false);
         return;
       }
@@ -248,7 +239,7 @@ export default function HealthHistoryPage() {
         const ws = XLSX.utils.json_to_sheet(
           sortedData.map((item) => ({
             "Thời gian": format(new Date(item.time), "dd/MM/yyyy HH:mm:ss"),
-            "Tên thiết bị": currentDevice?.name || deviceId,
+            "Tên thiết bị": currentDevice?.id || deviceId,
             "SpO₂ (%)": item.spo2,
             "Nhịp tim (BPM)": item.heartRate,
             "Nhiệt độ (°C)": item.temperature,
@@ -261,7 +252,7 @@ export default function HealthHistoryPage() {
         XLSX.utils.book_append_sheet(wb, ws, "Lịch sử đo");
         XLSX.writeFile(
           wb,
-          `Lich_su_do_${currentDevice?.name || deviceId}_${format(dateRange.from, "yyyyMMdd")}_${format(dateRange.to, "yyyyMMdd")}.xlsx`,
+          `Lich_su_do_${currentDevice?.id || deviceId}_${format(exportDateRange.from, "yyyyMMdd")}_${format(exportDateRange.to, "yyyyMMdd")}.xlsx`,
         );
       } else {
         const headers = [
@@ -279,7 +270,6 @@ export default function HealthHistoryPage() {
           item.temperature,
           item.gas,
           item.humidity,
-          item.humidity,
         ]);
 
         const csvContent = [headers, ...rows]
@@ -291,30 +281,19 @@ export default function HealthHistoryPage() {
         const link = document.createElement("a");
         const url = URL.createObjectURL(blob);
         link.href = url;
-        link.download = `Lich_su_do_${currentDevice?.name || deviceId}_${format(dateRange.from, "yyyyMMdd")}_${format(dateRange.to, "yyyyMMdd")}.csv`;
+        link.download = `Lich_su_do_${currentDevice?.id || deviceId}_${format(exportDateRange.from, "yyyyMMdd")}_${format(exportDateRange.to, "yyyyMMdd")}.csv`;
         link.click();
         URL.revokeObjectURL(url);
       }
 
       setExportProgress(100);
       setTimeout(() => setExporting(false), 1000);
+      toast.success(`Đã xuất ${exportData.length} bản ghi`);
     } catch (err) {
       console.error("Lỗi xuất file:", err);
-      alert("Không thể xuất file. Vui lòng thử lại sau.");
+      toast.error("Không thể xuất file. Vui lòng thử lại sau.");
       setExporting(false);
     }
-  };
-
-  const timeRangeText = () => {
-    if (filteredData.length === 0) return "";
-    const times = filteredData.map((d) => new Date(d.time));
-    const minTime = new Date(Math.min(...times.map((t) => t.getTime())));
-    const maxTime = new Date(Math.max(...times.map((t) => t.getTime())));
-    const hoursDiff = Math.round(differenceInMinutes(maxTime, minTime) / 60);
-    if (hoursDiff < 24) {
-      return ` (${hoursDiff} giờ)`;
-    }
-    return ` (${Math.round(hoursDiff / 24)} ngày)`;
   };
 
   if (!deviceId) {
@@ -349,11 +328,11 @@ export default function HealthHistoryPage() {
             <p className="text-gray-500 dark:text-gray-400">
               Thiết bị:{" "}
               <span className="font-medium text-gray-700 dark:text-gray-300">
-                {currentDevice?.name || deviceId}
+                {currentDevice?.id || currentDevice?.id || deviceId}
               </span>
             </p>
             <p className="text-sm text-gray-400 dark:text-gray-500">
-              Hiển thị: {filteredData.length} bản ghi{timeRangeText()}
+              Hiển thị: {allData.length} bản ghi gần nhất
             </p>
           </div>
 
@@ -372,11 +351,11 @@ export default function HealthHistoryPage() {
             </Button>
 
             <DateRangePicker
-              initialDateFrom={dateRange.from}
-              initialDateTo={dateRange.to}
+              initialDateFrom={exportDateRange.from}
+              initialDateTo={exportDateRange.to}
               onUpdate={({ range }) => {
                 if (range.from && range.to) {
-                  setDateRange({ from: range.from, to: range.to });
+                  setExportDateRange({ from: range.from, to: range.to });
                 }
               }}
               locale="vi-VN"
@@ -402,10 +381,10 @@ export default function HealthHistoryPage() {
           </div>
         </div>
 
-        {/* Stats Cards - 3 cards per row on large screens */}
-        {stats && filteredData.length > 0 && (
+        {/* Stats Cards */}
+        {stats && allData.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-8">
-            <Card className="border-0 shadow-md bg-gradient-to-br from-blue-600 to-blue-100 dark:from-blue-700 dark:to-blue-200 text-white">
+            <Card className="border-0 shadow-md bg-gradient-to-br from-blue-600 to-blue-500 dark:from-blue-700 dark:to-blue-600 text-white">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -424,7 +403,7 @@ export default function HealthHistoryPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-0 shadow-md bg-gradient-to-br from-red-600 to-red-100 dark:from-red-700 dark:to-red-200 text-white">
+            <Card className="border-0 shadow-md bg-gradient-to-br from-red-600 to-red-500 dark:from-red-700 dark:to-red-600 text-white">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -443,7 +422,7 @@ export default function HealthHistoryPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-0 shadow-md bg-gradient-to-br from-orange-600 to-orange-100 dark:from-orange-700 dark:to-orange-200 text-white">
+            <Card className="border-0 shadow-md bg-gradient-to-br from-orange-600 to-orange-500 dark:from-orange-700 dark:to-orange-600 text-white">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -463,7 +442,7 @@ export default function HealthHistoryPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-0 shadow-md bg-gradient-to-br from-purple-600 to-purple-100 dark:from-purple-700 dark:to-purple-200 text-white">
+            <Card className="border-0 shadow-md bg-gradient-to-br from-purple-600 to-purple-500 dark:from-purple-700 dark:to-purple-600 text-white">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -482,7 +461,7 @@ export default function HealthHistoryPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-0 shadow-md bg-gradient-to-br from-cyan-600 to-cyan-100 dark:from-cyan-700 dark:to-cyan-200 text-white">
+            <Card className="border-0 shadow-md bg-gradient-to-br from-cyan-600 to-cyan-500 dark:from-cyan-700 dark:to-cyan-600 text-white">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -521,7 +500,10 @@ export default function HealthHistoryPage() {
           <Card className="p-12 text-center shadow-lg dark:bg-slate-800">
             <CalendarIcon className="h-16 w-16 mx-auto text-gray-400 dark:text-gray-500 mb-4" />
             <p className="text-xl text-gray-500 dark:text-gray-400">
-              Không có dữ liệu trong khoảng thời gian này
+              Chưa có dữ liệu đo nào
+            </p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
+              Dữ liệu sẽ hiển thị khi thiết bị gửi thông tin
             </p>
           </Card>
         ) : (
@@ -570,11 +552,14 @@ export default function HealthHistoryPage() {
                         stroke="#3b82f6"
                         name="SpO₂ (%)"
                         strokeWidth={2}
-                        dot={chartData.length > 100 ? { r: 1 } : { r: 3 }}
+                        dot={chartData.length > 50 ? { r: 1 } : { r: 3 }}
                         activeDot={{ r: 6 }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
+                  <p className="text-xs text-center text-gray-500 mt-2">
+                    Hiển thị {chartData.length} bản ghi gần nhất
+                  </p>
                 </CardContent>
               </Card>
 
@@ -621,11 +606,14 @@ export default function HealthHistoryPage() {
                         stroke="#ef4444"
                         name="Nhịp tim (BPM)"
                         strokeWidth={2}
-                        dot={chartData.length > 100 ? { r: 1 } : { r: 3 }}
+                        dot={chartData.length > 50 ? { r: 1 } : { r: 3 }}
                         activeDot={{ r: 6 }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
+                  <p className="text-xs text-center text-gray-500 mt-2">
+                    Hiển thị {chartData.length} bản ghi gần nhất
+                  </p>
                 </CardContent>
               </Card>
 
@@ -672,11 +660,14 @@ export default function HealthHistoryPage() {
                         stroke="#f97316"
                         name="Nhiệt độ (°C)"
                         strokeWidth={2}
-                        dot={chartData.length > 100 ? { r: 1 } : { r: 3 }}
+                        dot={chartData.length > 50 ? { r: 1 } : { r: 3 }}
                         activeDot={{ r: 6 }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
+                  <p className="text-xs text-center text-gray-500 mt-2">
+                    Hiển thị {chartData.length} bản ghi gần nhất
+                  </p>
                 </CardContent>
               </Card>
 
@@ -720,11 +711,14 @@ export default function HealthHistoryPage() {
                         stroke="#8b5cf6"
                         name="Khí gas (ppm)"
                         strokeWidth={2}
-                        dot={chartData.length > 100 ? { r: 1 } : { r: 3 }}
+                        dot={chartData.length > 50 ? { r: 1 } : { r: 3 }}
                         activeDot={{ r: 6 }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
+                  <p className="text-xs text-center text-gray-500 mt-2">
+                    Hiển thị {chartData.length} bản ghi gần nhất
+                  </p>
                 </CardContent>
               </Card>
 
@@ -771,11 +765,14 @@ export default function HealthHistoryPage() {
                         stroke="#06b6d4"
                         name="Độ ẩm (%)"
                         strokeWidth={2}
-                        dot={chartData.length > 100 ? { r: 1 } : { r: 3 }}
+                        dot={chartData.length > 50 ? { r: 1 } : { r: 3 }}
                         activeDot={{ r: 6 }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
+                  <p className="text-xs text-center text-gray-500 mt-2">
+                    Hiển thị {chartData.length} bản ghi gần nhất
+                  </p>
                 </CardContent>
               </Card>
             </div>
@@ -784,7 +781,7 @@ export default function HealthHistoryPage() {
             <Card className="shadow-lg dark:bg-slate-800 dark:border-slate-700">
               <CardHeader>
                 <CardTitle className="text-slate-700 dark:text-slate-200">
-                  Danh sách đo chi tiết ({filteredData.length} bản ghi)
+                  Danh sách đo chi tiết ({tableData.length} bản ghi gần nhất)
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -816,7 +813,7 @@ export default function HealthHistoryPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredData.slice(0, 100).map((item, idx) => {
+                      {tableData.map((item, idx) => {
                         const alerts = getAlertStatus(item);
                         const hasAlert = alerts.length > 0;
                         return (
@@ -835,9 +832,7 @@ export default function HealthHistoryPage() {
                                 variant={
                                   item.spo2 > 95 && item.spo2 < 100
                                     ? "default"
-                                    : item.spo2 >= 92
-                                      ? "secondary"
-                                      : "destructive"
+                                    : "destructive"
                                 }
                               >
                                 {item.spo2}%
@@ -846,7 +841,7 @@ export default function HealthHistoryPage() {
                             <td className="p-4 text-center">
                               <Badge
                                 variant={
-                                  item.heartRate < 100 && item.heartRate > 60
+                                  item.heartRate > 60 && item.heartRate < 100
                                     ? "default"
                                     : "destructive"
                                 }
@@ -857,7 +852,7 @@ export default function HealthHistoryPage() {
                             <td className="p-4 text-center">
                               <Badge
                                 variant={
-                                  item.temperature < 30 && item.temperature > 18
+                                  item.temperature < 35 && item.temperature > 18
                                     ? "default"
                                     : "destructive"
                                 }
@@ -868,7 +863,7 @@ export default function HealthHistoryPage() {
                             <td className="p-4 text-center">
                               <Badge
                                 variant={
-                                  item.gas > 350 && item.gas < 630
+                                  item.gas > 320 && item.gas < 620
                                     ? "default"
                                     : "destructive"
                                 }
@@ -876,7 +871,7 @@ export default function HealthHistoryPage() {
                                 {item.gas}
                               </Badge>
                             </td>
-                            <td className="p-4 text-center font-mono font-medium text-slate-700 dark:text-slate-300">
+                            <td className="p-4 text-center">
                               <Badge
                                 variant={
                                   item.humidity > 40 && item.humidity < 70
@@ -884,7 +879,7 @@ export default function HealthHistoryPage() {
                                     : "destructive"
                                 }
                               >
-                                {item.humidity}
+                                {item.humidity}%
                               </Badge>
                             </td>
                             <td className="p-4 text-center">
@@ -901,12 +896,6 @@ export default function HealthHistoryPage() {
                     </tbody>
                   </table>
                 </ScrollArea>
-                {filteredData.length > 100 && (
-                  <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400 border-t dark:border-slate-700">
-                    Hiển thị 100/ {filteredData.length} bản ghi. Để xem đầy đủ,
-                    vui lòng xuất file Excel/CSV.
-                  </div>
-                )}
               </CardContent>
             </Card>
           </>
