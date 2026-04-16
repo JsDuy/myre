@@ -225,17 +225,7 @@ export default function Home() {
 
   const advisors = [
     {
-      name: "TS. Lê Thanh Lành",
-      title: "Giảng viên đề xuất ý tưởng",
-      department: "Khoa Công nghệ Thông tin - Truyền thông",
-    },
-    {
-      name: "ThS. Nguyễn Thành Trung",
-      title: "Giảng viên hướng dẫn",
-      department: "Khoa Công nghệ Thông tin - Truyền thông",
-    },
-    {
-      name: "ThS. Quách Thị Bích Nhường",
+      name: "Ts. Nguyễn Thành Trung",
       title: "Giảng viên hướng dẫn",
       department: "Khoa Công nghệ Thông tin - Truyền thông",
     },
@@ -260,7 +250,7 @@ export default function Home() {
 
             <h1 className="text-5xl md:text-7xl font-bold tracking-tight">
               <span className="gradient-text bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
-                HealthWatch IoT
+                HealthSmart IoT
               </span>
             </h1>
 
@@ -325,7 +315,7 @@ export default function Home() {
                 Giải pháp toàn diện cho sức khỏe
               </h2>
               <p className="text-gray-600 max-w-2xl mx-auto">
-                HealthWatch IoT mang đến trải nghiệm theo dõi sức khỏe chuyên
+                HealthSmart IoT mang đến trải nghiệm theo dõi sức khỏe chuyên
                 nghiệp với công nghệ tiên tiến
               </p>
             </div>
@@ -380,7 +370,7 @@ export default function Home() {
                     <p className="text-sm text-gray-500 mt-2">
                       <Image
                         src="/img/team-photo.jpg"
-                        alt="Ảnh nhóm HealthWatch IoT"
+                        alt="Ảnh nhóm HealthSmart  IoT"
                         fill
                         className="object-cover"
                         sizes="(max-width: 768px) 100vw, 768px"
@@ -430,12 +420,12 @@ export default function Home() {
                 Sự hướng dẫn tận tâm
               </h2>
               <p className="text-gray-600">
-                Chúng em xin gửi lời tri ân sâu sắc đến các thầy cô đã hướng dẫn
-                và hỗ trợ nhóm trong suốt quá trình thực hiện đồ án
+                Chúng em xin gửi lời tri ân sâu sắc đến các thầy đã hướng dẫn và
+                hỗ trợ nhóm trong suốt quá trình thực hiện đồ án
               </p>
             </div>
 
-            <div className="grid gap-6 md:grid-cols-3">
+            <div>
               {advisors.map((advisor, index) => (
                 <Card
                   key={index}
@@ -488,7 +478,7 @@ export default function Home() {
         {/* Footer */}
         <footer className="py-8 px-6 text-center text-gray-500 text-sm border-t">
           <p>
-            © 2026 HealthWatch IoT - Đồ án tốt nghiệp Trường Đại học Công nghệ
+            © 2026 HealthSmart IoT - Đồ án tốt nghiệp Trường Đại học Công nghệ
             Đồng Nai (DNTU)
           </p>
           <p className="mt-2">

@@ -11,13 +11,13 @@ import {
 import {
   Menu,
   LogOut,
-  Heart,
   Activity,
   Home,
   History,
   Bell,
   Smartphone,
   User,
+  Phone,
 } from "lucide-react";
 import Link from "next/link";
 import { useDevice } from "@/providers/DeviceProvider";
@@ -34,12 +34,6 @@ export function Header() {
   const pathname = usePathname();
 
   const navItems = [
-    {
-      label: "Trang chủ",
-      href: "/",
-      icon: Home,
-      active: pathname === "/",
-    },
     {
       label: "Theo dõi sức khỏe",
       href: "/monitor",
@@ -72,6 +66,12 @@ export function Header() {
       icon: User,
       active: pathname === "/account",
     },
+    {
+      label: "Liên hệ",
+      href: "/contract",
+      icon: Phone,
+      active: pathname === "/contract",
+    },
   ];
 
   const handleLogout = async () => {
@@ -98,7 +98,7 @@ export function Header() {
           </div>
           <div className="flex flex-col">
             <span className="font-bold text-xl bg-gradient-to-r from-blue-300 to-blue-800 bg-clip-text text-transparent">
-              HealthWatch
+              HealthSmart
             </span>
             <span className="text-xs text-gray-500 -mt-1">
               IoT Health Monitor
@@ -190,7 +190,7 @@ export function Header() {
                   </div>
                   <div>
                     <SheetTitle className="text-left text-lg">
-                      HealthWatch
+                      HealthSmart
                     </SheetTitle>
                     <p className="text-xs text-gray-500">IoT Health Monitor</p>
                   </div>

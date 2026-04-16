@@ -183,14 +183,13 @@ export default function HealthHistoryPage() {
 
   const getAlertStatus = (item: HealthData) => {
     const alerts = [];
-    if (item.spo2 < 95) alerts.push("SpO₂ thấp");
+    if (item.spo2 < 75) alerts.push("SpO₂ thấp");
     if (item.spo2 > 100) alerts.push("SpO₂ cao");
-    if (item.heartRate > 100) alerts.push("Nhịp tim cao");
-    if (item.heartRate < 60) alerts.push("Nhịp tim thấp");
-    if (item.temperature > 35) alerts.push("Nhiệt độ cao");
+    if (item.heartRate > 90) alerts.push("Nhịp tim cao");
+    if (item.heartRate < 55) alerts.push("Nhịp tim thấp");
+    if (item.temperature > 38) alerts.push("Nhiệt độ cao");
     if (item.temperature < 18) alerts.push("Nhiệt độ thấp");
     if (item.gas > 620) alerts.push("Khí gas cao");
-    if (item.gas < 320) alerts.push("Khí gas thấp");
     if (item.humidity > 70) alerts.push("Độ ẩm cao");
     if (item.humidity < 40) alerts.push("Độ ẩm thấp");
     return alerts;
@@ -830,7 +829,7 @@ export default function HealthHistoryPage() {
                             <td className="p-4 text-center">
                               <Badge
                                 variant={
-                                  item.spo2 > 95 && item.spo2 < 100
+                                  item.spo2 > 75 && item.spo2 < 100
                                     ? "default"
                                     : "destructive"
                                 }
@@ -841,7 +840,7 @@ export default function HealthHistoryPage() {
                             <td className="p-4 text-center">
                               <Badge
                                 variant={
-                                  item.heartRate > 60 && item.heartRate < 100
+                                  item.heartRate > 55 && item.heartRate < 90
                                     ? "default"
                                     : "destructive"
                                 }
@@ -852,7 +851,7 @@ export default function HealthHistoryPage() {
                             <td className="p-4 text-center">
                               <Badge
                                 variant={
-                                  item.temperature < 35 && item.temperature > 18
+                                  item.temperature < 38 && item.temperature > 18
                                     ? "default"
                                     : "destructive"
                                 }
@@ -863,7 +862,7 @@ export default function HealthHistoryPage() {
                             <td className="p-4 text-center">
                               <Badge
                                 variant={
-                                  item.gas > 320 && item.gas < 620
+                                  item.gas > 0 && item.gas < 620
                                     ? "default"
                                     : "destructive"
                                 }
@@ -874,7 +873,7 @@ export default function HealthHistoryPage() {
                             <td className="p-4 text-center">
                               <Badge
                                 variant={
-                                  item.humidity > 40 && item.humidity < 70
+                                  item.humidity > 39 && item.humidity < 70
                                     ? "default"
                                     : "destructive"
                                 }

@@ -60,17 +60,21 @@ const getMetricColor = (value: string, metric: string): string => {
 
   switch (metric) {
     case "SpO2":
-      return numValue < 92
+      return numValue < 75
         ? "text-red-600"
-        : numValue < 95
+        : numValue < 100
           ? "text-orange-500"
           : "text-green-600";
     case "Nhịp tim":
-      return numValue > 140 || numValue < 50 ? "text-red-600" : "text-blue-600";
+      return numValue > 90 || numValue < 55 ? "text-red-600" : "text-blue-600";
     case "Nhiệt độ":
-      return numValue > 38 || numValue < 35
+      return numValue > 38 || numValue < 18
         ? "text-red-600"
         : "text-orange-500";
+    case "Khí gas":
+      return numValue > 620 ? "text-red-600" : "text-green-600";
+    case "Độ ẩm":
+      return numValue > 70 || numValue < 40 ? "text-red-600" : "text-green-600";
     default:
       return "text-gray-700";
   }

@@ -14,6 +14,7 @@ import {
   VolumeX,
   Wifi,
   WifiOff,
+  Fingerprint,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,6 +51,7 @@ interface HealthMetric {
   note?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   icon?: any;
+  isNoFinger?: boolean;
 }
 
 interface Alert {
@@ -85,8 +87,8 @@ export default function HealthMonitorPage() {
       unit: "bpm",
       min: 40,
       max: 180,
-      safeMin: 60,
-      safeMax: 100,
+      safeMin: 55,
+      safeMax: 90,
       icon: Heart,
     },
     {
@@ -95,7 +97,7 @@ export default function HealthMonitorPage() {
       unit: "%",
       min: 70,
       max: 100,
-      safeMin: 95,
+      safeMin: 75,
       safeMax: 100,
       icon: Wind,
     },
@@ -106,16 +108,16 @@ export default function HealthMonitorPage() {
       min: 0,
       max: 50,
       safeMin: 18,
-      safeMax: 35,
+      safeMax: 38,
       icon: Thermometer,
     },
     {
       label: "Nồng độ khí gas",
       value: 0,
       unit: "ppm",
-      min: 300,
+      min: 0,
       max: 700,
-      safeMin: 320,
+      safeMin: 0,
       safeMax: 620,
       icon: Activity,
     },
@@ -136,16 +138,24 @@ export default function HealthMonitorPage() {
   const [soundMuted, setSoundMuted] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [noFingerDetected, setNoFingerDetected] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const isPlayingRef = useRef(false);
   const currentToastIdRef = useRef<string | null>(null);
   const lastAlertSignatureRef = useRef<string>("");
 
-  const hasDanger = useMemo(
-    () => metrics.some((m) => m.value < m.safeMin || m.value > m.safeMax),
-    [metrics],
-  );
+  const hasDanger = useMemo(() => {
+    // Nếu đang ở trạng thái không có ngón tay -> không coi là danger
+    if (noFingerDetected) return false;
+
+    return metrics.some((m) => {
+      // Chỉ kiểm tra các chỉ số có value > 0 (bỏ qua chỉ số đang ở trạng thái không có ngón tay)
+      if (m.value === 0) return false;
+      return m.value < m.safeMin || m.value > m.safeMax;
+    });
+    // eslint-disable-next-line react-hooks/immutability
+  }, [metrics, noFingerDetected]);
 
   // Format thời gian
   const formatTime = (timestamp: number) => {
@@ -173,17 +183,35 @@ export default function HealthMonitorPage() {
         return;
       }
 
+      // Lấy giá trị HR và SpO2
+      const heartRate = Number(data.heartRate ?? data.hr ?? 0);
+      const spo2 = Number(data.spo2 ?? data.spo ?? 0);
+
+      // Kiểm tra điều kiện "không có ngón tay"
+      const isNoFinger = heartRate === 0 && spo2 === 0;
+      setNoFingerDetected(isNoFinger);
+
       setMetrics((prev) =>
         prev.map((item) => {
           let value = item.value;
-          const note = item.note;
+          let note = item.note;
 
           switch (item.label) {
             case "Nhịp tim":
               value = Number(data.heartRate ?? data.hr ?? 0);
+              if (isNoFinger) {
+                note = "Không phát hiện ngón tay";
+              } else {
+                note = undefined;
+              }
               break;
             case "Nồng độ oxy (SpO2)":
               value = Number(data.spo2 ?? data.spo ?? 0);
+              if (isNoFinger) {
+                note = "Không phát hiện ngón tay";
+              } else {
+                note = undefined;
+              }
               break;
             case "Nhiệt độ môi trường":
               value = Number(data.envTemp ?? data.temperature ?? 0);
@@ -233,18 +261,17 @@ export default function HealthMonitorPage() {
         });
 
         const reasons: string[] = [];
-        if (data.spo2 < 95) reasons.push(`SpO2 thấp: ${data.spo2}%`);
+        if (data.spo2 < 75) reasons.push(`SpO2 thấp: ${data.spo2}%`);
         if (data.spo2 > 100) reasons.push(`SpO2 cao: ${data.spo2}%`);
-        if (data.heartRate > 100)
+        if (data.heartRate > 90)
           reasons.push(`Nhịp tim cao: ${data.heartRate} BPM`);
-        if (data.heartRate < 60)
+        if (data.heartRate < 55)
           reasons.push(`Nhịp tim thấp: ${data.heartRate} BPM`);
-        if (data.temperature > 35)
+        if (data.temperature > 38)
           reasons.push(`Nhiệt độ cao: ${data.temperature}°C`);
         if (data.temperature < 18)
           reasons.push(`Nhiệt độ thấp: ${data.temperature}°C`);
         if (data.gas > 620) reasons.push(`Khí gas cao: ${data.gas} ppm`);
-        if (data.gas > 330) reasons.push(`Khí gas thấp: ${data.gas} ppm`);
         if (data.humidity > 70) reasons.push(`Độ ẩm cao: ${data.humidity}%`);
         if (data.humidity < 40) reasons.push(`Độ ẩm thấp: ${data.humidity}%`);
 
@@ -474,7 +501,19 @@ export default function HealthMonitorPage() {
             </div>
           </div>
         </div>
-
+        {noFingerDetected && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-3 shadow-sm">
+            <Fingerprint className="h-5 w-5 text-amber-600" />
+            <div>
+              <p className="font-medium text-amber-800">
+                ⚠️ Không phát hiện ngón tay
+              </p>
+              <p className="text-sm text-amber-600">
+                Vui lòng đặt ngón tay lên cảm biến để theo dõi nhịp tim và SpO2
+              </p>
+            </div>
+          </div>
+        )}
         {/* Metrics Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-12">
           {metrics.map((item, idx) => {
